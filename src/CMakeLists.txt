@@ -1,4 +1,4 @@
 idf_component_register(
-    SRCS "main.c"
-    PRIV_REQUIRES bsp ui usb_hid nvs_flash
+    SRCS "main.c" "app.c"
+    PRIV_REQUIRES bsp keymap nvs_flash settings status_led typer ui usb_hid
 )

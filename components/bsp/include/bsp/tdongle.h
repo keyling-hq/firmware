@@ -44,6 +44,11 @@ esp_err_t bsp_display_brightness_set(int percent);
 
 esp_err_t bsp_button_create(button_handle_t *out_btn);
 
+esp_err_t bsp_led_init(void);
+
+/** Not thread safe: call from a single task. */
+void bsp_led_set(uint8_t r, uint8_t g, uint8_t b);
+
 #ifdef __cplusplus
 }
 #endif

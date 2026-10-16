@@ -1,70 +1,322 @@
+#include <stdio.h>
+#include <string.h>
 #include "ui.h"
 #include "ui_input.h"
+#include "bsp/tdongle.h"
+#include "esp_idf_version.h"
 #include "esp_lvgl_port.h"
 #include "esp_log.h"
+#include "keymap.h"
+#include "settings.h"
 
 static const char *TAG = "ui";
 
-static lv_obj_t *s_status;
+#define SCREEN_TICK_MS      250
+#define MENU_RESET_MS       (2 * 60 * 1000)
+#define ITEM_HEIGHT         20
+
+typedef void (*menu_fn_t)(void);
+
+static void navigate(menu_fn_t fn);
+
 static ui_action_cb_t s_action_cb;
+static lv_indev_t *s_indev;
+static lv_obj_t *s_status;
+static menu_fn_t s_back;
+static volatile bool s_screen_on = true;
+static bool s_typing;
+static bool s_usb_mounted;
+static uint32_t s_screen_off_tick;
 
-static void menu_item_event_cb(lv_event_t *e)
+static void show_main_menu(void);
+
+static void screen_set(bool on)
 {
-    lv_obj_t *item = lv_event_get_target_obj(e);
-    ui_action_t action = (ui_action_t)(uintptr_t)lv_event_get_user_data(e);
-    const char *name = lv_label_get_text(lv_obj_get_child(item, 0));
-
-    switch (lv_event_get_code(e)) {
-    case LV_EVENT_CLICKED:
-        lv_label_set_text_fmt(s_status, "> %s", name);
-        ESP_LOGI(TAG, "selected: %s", name);
-        if (s_action_cb) {
-            s_action_cb(action);
+    if (on == s_screen_on) {
+        return;
+    }
+    s_screen_on = on;
+    if (on) {
+        if (lv_tick_elaps(s_screen_off_tick) >= MENU_RESET_MS && !s_typing) {
+            navigate(show_main_menu);
         }
-        break;
-    case LV_EVENT_KEY:
-        if (lv_event_get_key(e) == LV_KEY_ESC) {
-            lv_label_set_text(s_status, "< back");
-        }
-        break;
-    default:
-        break;
+        settings_t settings;
+        settings_get(&settings);
+        bsp_display_brightness_set(settings.brightness);
+        lv_display_trigger_activity(NULL);
+    } else {
+        s_screen_off_tick = lv_tick_get();
+        bsp_display_brightness_set(0);
     }
 }
 
-static void add_menu_item(lv_obj_t *parent, const char *text, ui_action_t action)
+bool ui_screen_is_on(void)
 {
-    lv_obj_t *btn = lv_button_create(parent);
-    lv_obj_set_size(btn, lv_pct(100), 20);
-    lv_obj_add_event_cb(btn, menu_item_event_cb, LV_EVENT_ALL, (void *)(uintptr_t)action);
+    return s_screen_on;
+}
+
+void ui_screen_wake(void)
+{
+    screen_set(true);
+}
+
+static void screen_timer_cb(lv_timer_t *timer)
+{
+    if (!s_screen_on || s_typing) {
+        return;
+    }
+    settings_t settings;
+    settings_get(&settings);
+    if (lv_display_get_inactive_time(NULL) >= settings.screen_timeout_s * 1000U) {
+        screen_set(false);
+    }
+}
+
+static void emit(ui_action_t action, int arg)
+{
+    if (s_action_cb) {
+        s_action_cb(action, arg);
+    }
+}
+
+/* ---- menu scaffolding ---------------------------------------------------- */
+
+static void navigate_async_cb(void *fn)
+{
+    ((menu_fn_t)fn)();
+}
+
+/* Event handlers must not delete their own screen: switch screens after the event completes. */
+static void navigate(menu_fn_t fn)
+{
+    lv_async_call(navigate_async_cb, (void *)fn);
+}
+
+static void item_key_cb(lv_event_t *e)
+{
+    if (lv_event_get_key(e) != LV_KEY_ESC) {
+        return;
+    }
+    if (s_back) {
+        navigate(s_back);
+    } else {
+        screen_set(false);
+    }
+}
+
+static lv_obj_t *menu_begin(const char *title, menu_fn_t back)
+{
+    s_back = back;
+    s_status = NULL;
+
+    lv_group_t *group = lv_group_create();
+    lv_group_set_wrap(group, true);
+    lv_group_set_default(group);
+
+    lv_obj_t *scr = lv_obj_create(NULL);
+    lv_obj_set_flex_flow(scr, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(scr, 2, 0);
+    lv_obj_set_style_pad_row(scr, 2, 0);
+    lv_obj_set_user_data(scr, group);
+
+    lv_obj_t *label = lv_label_create(scr);
+    lv_label_set_text(label, title);
+
+    lv_obj_t *list = lv_obj_create(scr);
+    lv_obj_set_width(list, lv_pct(100));
+    lv_obj_set_flex_grow(list, 1);
+    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(list, 2, 0);
+    lv_obj_set_style_pad_row(list, 2, 0);
+    lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_OFF);
+    return list;
+}
+
+static lv_obj_t *menu_add(lv_obj_t *list, const char *text, lv_event_cb_t cb, intptr_t arg)
+{
+    lv_obj_t *btn = lv_button_create(list);
+    lv_obj_set_size(btn, lv_pct(100), ITEM_HEIGHT);
+    lv_obj_add_event_cb(btn, item_key_cb, LV_EVENT_KEY, NULL);
+    if (cb) {
+        lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, (void *)arg);
+    }
 
     lv_obj_t *label = lv_label_create(btn);
     lv_label_set_text(label, text);
     lv_obj_center(label);
+    return btn;
 }
 
-static void build_main_screen(void)
+static void menu_end(lv_obj_t *list, lv_obj_t *focus)
 {
-    lv_obj_t *scr = lv_screen_active();
-    lv_obj_set_flex_flow(scr, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_all(scr, 2, 0);
-    lv_obj_set_style_pad_row(scr, 2, 0);
+    lv_obj_t *scr = lv_obj_get_screen(list);
+    lv_group_t *group = lv_obj_get_user_data(scr);
+    lv_obj_t *old_scr = lv_screen_active();
+    lv_group_t *old_group = lv_obj_get_user_data(old_scr);
 
-    s_status = lv_label_create(scr);
-    lv_label_set_text(s_status, "BLE: --  USB: --");
+    lv_indev_set_group(s_indev, group);
+    if (focus) {
+        lv_group_focus_obj(focus);
+    }
+    lv_screen_load(scr);
+    lv_obj_delete(old_scr);
+    if (old_group) {
+        lv_group_delete(old_group);
+    }
+}
 
-    lv_obj_t *menu = lv_obj_create(scr);
-    lv_obj_set_width(menu, lv_pct(100));
-    lv_obj_set_flex_grow(menu, 1);
-    lv_obj_set_flex_flow(menu, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_all(menu, 2, 0);
-    lv_obj_set_style_pad_row(menu, 2, 0);
-    lv_obj_set_scrollbar_mode(menu, LV_SCROLLBAR_MODE_OFF);
+/* ---- screens ------------------------------------------------------------- */
 
-    add_menu_item(menu, "Type test", UI_ACTION_TYPE_TEST);
-    add_menu_item(menu, "Keyboard layout", UI_ACTION_KEYBOARD_LAYOUT);
-    add_menu_item(menu, "Pairing", UI_ACTION_PAIRING);
-    add_menu_item(menu, "About", UI_ACTION_ABOUT);
+static void update_status(void)
+{
+    if (!s_status) {
+        return;
+    }
+    settings_t settings;
+    settings_get(&settings);
+    lv_label_set_text_fmt(s_status, "USB %s  %s", s_usb_mounted ? "ok" : "--", settings.layout);
+}
+
+static void action_click_cb(lv_event_t *e)
+{
+    emit((ui_action_t)(intptr_t)lv_event_get_user_data(e), 0);
+}
+
+static void submenu_cb(lv_event_t *e)
+{
+    navigate((menu_fn_t)lv_event_get_user_data(e));
+}
+
+static void layout_select_cb(lv_event_t *e)
+{
+    emit(UI_ACTION_SET_LAYOUT, (int)(intptr_t)lv_event_get_user_data(e));
+    navigate(show_main_menu);
+}
+
+static void speed_select_cb(lv_event_t *e)
+{
+    emit(UI_ACTION_SET_SPEED, (int)(intptr_t)lv_event_get_user_data(e));
+    navigate(show_main_menu);
+}
+
+static void show_layout_menu(void)
+{
+    settings_t settings;
+    settings_get(&settings);
+    lv_obj_t *list = menu_begin("Keyboard layout", show_main_menu);
+    lv_obj_t *focus = NULL;
+    for (size_t i = 0; i < keymap_layout_count(); i++) {
+        const keymap_layout_t *layout = keymap_layout_get(i);
+        lv_obj_t *item = menu_add(list, layout->name, layout_select_cb, (intptr_t)i);
+        if (strcmp(layout->id, settings.layout) == 0) {
+            focus = item;
+        }
+    }
+    menu_end(list, focus);
+}
+
+static void show_speed_menu(void)
+{
+    settings_t settings;
+    settings_get(&settings);
+    lv_obj_t *list = menu_begin("Typing speed", show_main_menu);
+    lv_obj_t *focus = NULL;
+    for (size_t i = 0; i < settings_speed_preset_count; i++) {
+        const settings_speed_preset_t *preset = &settings_speed_presets[i];
+        lv_obj_t *item = menu_add(list, preset->name, speed_select_cb, (intptr_t)i);
+        if (preset->key_press_ms == settings.key_press_ms) {
+            focus = item;
+        }
+    }
+    menu_end(list, focus);
+}
+
+static void show_about(void)
+{
+    lv_obj_t *list = menu_begin("About", show_main_menu);
+    lv_obj_t *info = lv_label_create(list);
+    lv_label_set_text_fmt(info, "BLE Input Bridge\nIDF %s", esp_get_idf_version());
+    menu_add(list, "Back", submenu_cb, (intptr_t)show_main_menu);
+    menu_end(list, NULL);
+}
+
+static void show_main_menu(void)
+{
+    settings_t settings;
+    settings_get(&settings);
+    char text[32];
+
+    lv_obj_t *list = menu_begin("", NULL);
+    s_status = lv_obj_get_child(lv_obj_get_screen(list), 0);
+    update_status();
+
+    menu_add(list, "Type test", action_click_cb, UI_ACTION_TYPE_TEST);
+    const keymap_layout_t *layout = keymap_layout_find(settings.layout);
+    snprintf(text, sizeof(text), "Layout: %s", layout ? layout->name : "?");
+    menu_add(list, text, submenu_cb, (intptr_t)show_layout_menu);
+    const char *speed = "Custom";
+    for (size_t i = 0; i < settings_speed_preset_count; i++) {
+        if (settings_speed_presets[i].key_press_ms == settings.key_press_ms) {
+            speed = settings_speed_presets[i].name;
+        }
+    }
+    snprintf(text, sizeof(text), "Speed: %s", speed);
+    menu_add(list, text, submenu_cb, (intptr_t)show_speed_menu);
+    menu_add(list, "Forget phone", action_click_cb, UI_ACTION_FORGET_PHONE);
+    menu_add(list, "About", submenu_cb, (intptr_t)show_about);
+    menu_end(list, NULL);
+}
+
+static void abort_cb(lv_event_t *e)
+{
+    emit(UI_ACTION_ABORT_TYPING, 0);
+}
+
+static void abort_key_cb(lv_event_t *e)
+{
+    if (lv_event_get_key(e) == LV_KEY_ESC) {
+        emit(UI_ACTION_ABORT_TYPING, 0);
+    }
+}
+
+/* Shows no counts or text: either would leak password length or content. */
+static void show_typing(void)
+{
+    lv_obj_t *list = menu_begin("Typing...", NULL);
+    lv_obj_t *btn = menu_add(list, "Hold to abort", abort_cb, 0);
+    lv_obj_remove_event_cb(btn, item_key_cb);
+    lv_obj_add_event_cb(btn, abort_key_cb, LV_EVENT_KEY, NULL);
+    menu_end(list, NULL);
+}
+
+/* ---- public -------------------------------------------------------------- */
+
+void ui_set_usb_state(bool mounted)
+{
+    if (!lvgl_port_lock(0)) {
+        return;
+    }
+    s_usb_mounted = mounted;
+    update_status();
+    lvgl_port_unlock();
+}
+
+void ui_show_typing(bool typing)
+{
+    if (!lvgl_port_lock(0)) {
+        return;
+    }
+    if (typing != s_typing) {
+        s_typing = typing;
+        screen_set(true);
+        lv_display_trigger_activity(NULL);
+        if (typing) {
+            show_typing();
+        } else {
+            show_main_menu();
+        }
+    }
+    lvgl_port_unlock();
 }
 
 esp_err_t ui_start(button_handle_t btn, ui_action_cb_t action_cb)
@@ -79,19 +331,17 @@ esp_err_t ui_start(button_handle_t btn, ui_action_cb_t action_cb)
                                               lv_palette_main(LV_PALETTE_CYAN), true, LV_FONT_DEFAULT);
     lv_display_set_theme(disp, theme);
 
-    lv_group_t *group = lv_group_create();
-    lv_group_set_default(group);
-    lv_group_set_wrap(group, true);
-
     esp_err_t ret = ESP_OK;
-    lv_indev_t *indev = ui_input_create(btn);
-    if (indev) {
-        lv_indev_set_group(indev, group);
-        build_main_screen();
+    s_indev = ui_input_create(btn);
+    if (s_indev) {
+        show_main_menu();
+        lv_timer_create(screen_timer_cb, SCREEN_TICK_MS, NULL);
+        screen_set(false);
     } else {
         ret = ESP_ERR_NO_MEM;
     }
 
     lvgl_port_unlock();
+    ESP_LOGI(TAG, "started");
     return ret;
 }

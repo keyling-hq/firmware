@@ -95,6 +95,19 @@ static const char *s_strings[STRID_COUNT] = {
 
 static SemaphoreHandle_t s_lock;
 static volatile uint8_t s_leds;
+static usb_hid_mount_cb_t s_mount_cb;
+static void *s_mount_ctx;
+
+static void usb_event_cb(tinyusb_event_t *event, void *arg)
+{
+    bool mounted = event->id == TINYUSB_EVENT_ATTACHED;
+    if (!mounted) {
+        s_leds = 0;
+    }
+    if (s_mount_cb) {
+        s_mount_cb(mounted, s_mount_ctx);
+    }
+}
 
 uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance)
 {
@@ -140,8 +153,10 @@ static void cdc_line_coding_cb(int itf, cdcacm_event_t *event)
     }
 }
 
-esp_err_t usb_hid_start(void)
+esp_err_t usb_hid_start(usb_hid_mount_cb_t cb, void *ctx)
 {
+    s_mount_cb = cb;
+    s_mount_ctx = ctx;
     s_lock = xSemaphoreCreateMutex();
     ESP_RETURN_ON_FALSE(s_lock, ESP_ERR_NO_MEM, TAG, "mutex");
 
@@ -150,7 +165,7 @@ esp_err_t usb_hid_start(void)
     snprintf(s_serial, sizeof(s_serial), "%02X%02X%02X%02X%02X%02X",
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
-    tinyusb_config_t cfg = TINYUSB_DEFAULT_CONFIG();
+    tinyusb_config_t cfg = TINYUSB_DEFAULT_CONFIG(usb_event_cb);
     cfg.descriptor.device = &s_device_desc;
     cfg.descriptor.full_speed_config = s_config_desc;
     cfg.descriptor.string = s_strings;

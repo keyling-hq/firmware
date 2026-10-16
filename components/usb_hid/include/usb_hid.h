@@ -10,7 +10,10 @@ extern "C" {
 
 #define USB_HID_KEYBOARD_KEYS   6
 
-esp_err_t usb_hid_start(void);
+/** Called from the USB task when the host configures or drops the device. */
+typedef void (*usb_hid_mount_cb_t)(bool mounted, void *ctx);
+
+esp_err_t usb_hid_start(usb_hid_mount_cb_t cb, void *ctx);
 
 /** True once the host has configured the device. */
 bool usb_hid_is_mounted(void);

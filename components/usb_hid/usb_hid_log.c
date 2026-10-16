@@ -3,9 +3,12 @@
 
 static const char *TAG = "usb_hid";
 
-esp_err_t usb_hid_start(void)
+esp_err_t usb_hid_start(usb_hid_mount_cb_t cb, void *ctx)
 {
     ESP_LOGI(TAG, "TinyUSB disabled, HID reports are logged");
+    if (cb) {
+        cb(true, ctx);
+    }
     return ESP_OK;
 }
 
