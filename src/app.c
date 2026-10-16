@@ -1,5 +1,6 @@
 #include <string.h>
 #include "app.h"
+#include "ble_link.h"
 #include "bsp/tdongle.h"
 #include "esp_check.h"
 #include "esp_log.h"
@@ -17,6 +18,9 @@ static const char TYPE_TEST_TEXT[] =
     "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~\n"
     "\xC3\xA1\xC3\xA9\xC3\xAD\xC3\xB3\xC3\xBA \xC3\x81\xC3\x89\xC3\x8D\xC3\x93\xC3\x9A "
     "\xC3\xB1\xC3\x91 \xC3\xBC\xC3\x9C \xC2\xBF\xC2\xA1 \xC2\xB0\xC2\xAC\n";
+
+static volatile ble_link_state_t s_ble_state = BLE_LINK_ADVERTISING;
+static status_led_pattern_t s_led = STATUS_LED_OFF;
 
 static const keymap_layout_t *layout_for(const char *id)
 {
@@ -76,10 +80,26 @@ static void ui_action_cb(ui_action_t action, int arg)
     case UI_ACTION_ABORT_TYPING:
         typer_abort();
         break;
+    case UI_ACTION_PAIR_NEW:
+        /* Only one connection at a time: the current phone has to make room for the new one. */
+        ble_link_disconnect();
+        ble_link_pairing_window(true);
+        break;
+    case UI_ACTION_CANCEL_PAIRING:
+        ble_link_pairing_window(false);
+        if (s_ble_state == BLE_LINK_SECURING) {
+            ble_link_disconnect();
+        }
+        break;
     case UI_ACTION_FORGET_PHONE:
-        ESP_LOGI(TAG, "forget phone: no BLE bond yet");
+        ble_link_forget();
         break;
     }
+}
+
+static void notify_phone(const char *msg)
+{
+    ble_link_notify(msg, strlen(msg));
 }
 
 static void typer_event_cb(typer_event_t event, void *ctx)
@@ -90,10 +110,12 @@ static void typer_event_cb(typer_event_t event, void *ctx)
         break;
     case TYPER_EVENT_IDLE:
         ui_show_typing(false);
+        notify_phone("done\n");
         break;
     case TYPER_EVENT_ERROR:
         ui_show_typing(false);
         status_led_set(STATUS_LED_ERROR);
+        notify_phone("error\n");
         break;
     }
 }
@@ -102,10 +124,59 @@ static void usb_mount_cb(bool mounted, void *ctx)
 {
     ESP_LOGI(TAG, "usb %s", mounted ? "mounted" : "unmounted");
     ui_set_usb_state(mounted);
-    if (mounted) {
-        status_led_set(STATUS_LED_CONNECTED);
-    } else {
+    if (!mounted) {
         typer_abort();
+    }
+}
+
+static ui_ble_state_t ui_ble_state_for(const ble_link_status_t *status)
+{
+    switch (status->state) {
+    case BLE_LINK_CONNECTED:
+        return UI_BLE_CONNECTED;
+    case BLE_LINK_SECURING:
+        return UI_BLE_SECURING;
+    default:
+        return status->pairing_window ? UI_BLE_PAIRING : status->bonded ? UI_BLE_ADVERTISING : UI_BLE_UNPAIRED;
+    }
+}
+
+/* The connected pattern fades out by itself: it only restarts when a new connection is made. */
+static status_led_pattern_t led_for(const ble_link_status_t *status)
+{
+    if (status->state == BLE_LINK_CONNECTED) {
+        return STATUS_LED_CONNECTED;
+    }
+    if (status->pairing_window) {
+        return STATUS_LED_PAIRING;
+    }
+    if (status->state == BLE_LINK_SECURING) {
+        return s_led;
+    }
+    return status->bonded ? STATUS_LED_OFF : STATUS_LED_ADVERTISING;
+}
+
+static void ble_status_cb(const ble_link_status_t *status, void *ctx)
+{
+    s_ble_state = status->state;
+    status_led_pattern_t led = led_for(status);
+    if (led != s_led) {
+        s_led = led;
+        status_led_set(led);
+    }
+    ui_set_ble_state(ui_ble_state_for(status));
+    ui_show_pairing(status->pairing_window);
+}
+
+static void ble_passkey_cb(uint32_t passkey, bool show, void *ctx)
+{
+    ui_show_passkey(passkey, show);
+}
+
+static void ble_rx_cb(const uint8_t *data, size_t len, void *ctx)
+{
+    if (typer_text((const char *)data, len, 0) != ESP_OK) {
+        notify_phone("full\n");
     }
 }
 
@@ -123,5 +194,14 @@ esp_err_t app_start(void)
     ESP_RETURN_ON_ERROR(typer_start(typer_event_cb, NULL), TAG, "typer");
     apply_settings();
     ESP_RETURN_ON_ERROR(usb_hid_start(usb_mount_cb, NULL), TAG, "usb");
+
+    settings_t settings;
+    settings_get(&settings);
+    static const ble_link_callbacks_t ble_callbacks = {
+        .status = ble_status_cb,
+        .passkey = ble_passkey_cb,
+        .rx = ble_rx_cb,
+    };
+    ESP_RETURN_ON_ERROR(ble_link_start(settings.ble_name, &ble_callbacks, NULL), TAG, "ble");
     return ESP_OK;
 }
