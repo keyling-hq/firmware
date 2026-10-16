@@ -68,7 +68,6 @@ esp_err_t bsp_display_start(lv_display_t **out_disp)
     ESP_RETURN_ON_ERROR(esp_lcd_panel_reset(panel), TAG, "reset");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_init(panel), TAG, "init");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_invert_color(panel, true), TAG, "invert");
-    /* Landscape, same orientation as the LilyGo examples */
     ESP_RETURN_ON_ERROR(esp_lcd_panel_set_gap(panel, BSP_LCD_X_GAP, BSP_LCD_Y_GAP), TAG, "gap");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_swap_xy(panel, true), TAG, "swap_xy");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_mirror(panel, false, true), TAG, "mirror");

@@ -1,0 +1,10 @@
+menu "USB HID"
+
+    config USB_HID_TINYUSB
+        bool "Composite TinyUSB device (HID keyboard/mouse/consumer + CDC console)"
+        default n
+        help
+            When disabled, HID reports are written to the log and the USB port stays
+            on the built-in USB-Serial-JTAG.
+
+endmenu

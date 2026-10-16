@@ -6,16 +6,21 @@
 static const char *TAG = "ui";
 
 static lv_obj_t *s_status;
+static ui_action_cb_t s_action_cb;
 
 static void menu_item_event_cb(lv_event_t *e)
 {
     lv_obj_t *item = lv_event_get_target_obj(e);
+    ui_action_t action = (ui_action_t)(uintptr_t)lv_event_get_user_data(e);
     const char *name = lv_label_get_text(lv_obj_get_child(item, 0));
 
     switch (lv_event_get_code(e)) {
     case LV_EVENT_CLICKED:
         lv_label_set_text_fmt(s_status, "> %s", name);
         ESP_LOGI(TAG, "selected: %s", name);
+        if (s_action_cb) {
+            s_action_cb(action);
+        }
         break;
     case LV_EVENT_KEY:
         if (lv_event_get_key(e) == LV_KEY_ESC) {
@@ -27,11 +32,11 @@ static void menu_item_event_cb(lv_event_t *e)
     }
 }
 
-static void add_menu_item(lv_obj_t *parent, const char *text)
+static void add_menu_item(lv_obj_t *parent, const char *text, ui_action_t action)
 {
     lv_obj_t *btn = lv_button_create(parent);
     lv_obj_set_size(btn, lv_pct(100), 20);
-    lv_obj_add_event_cb(btn, menu_item_event_cb, LV_EVENT_ALL, NULL);
+    lv_obj_add_event_cb(btn, menu_item_event_cb, LV_EVENT_ALL, (void *)(uintptr_t)action);
 
     lv_obj_t *label = lv_label_create(btn);
     lv_label_set_text(label, text);
@@ -56,17 +61,18 @@ static void build_main_screen(void)
     lv_obj_set_style_pad_row(menu, 2, 0);
     lv_obj_set_scrollbar_mode(menu, LV_SCROLLBAR_MODE_OFF);
 
-    add_menu_item(menu, "Type test");
-    add_menu_item(menu, "Keyboard layout");
-    add_menu_item(menu, "Pairing");
-    add_menu_item(menu, "About");
+    add_menu_item(menu, "Type test", UI_ACTION_TYPE_TEST);
+    add_menu_item(menu, "Keyboard layout", UI_ACTION_KEYBOARD_LAYOUT);
+    add_menu_item(menu, "Pairing", UI_ACTION_PAIRING);
+    add_menu_item(menu, "About", UI_ACTION_ABOUT);
 }
 
-esp_err_t ui_start(button_handle_t btn)
+esp_err_t ui_start(button_handle_t btn, ui_action_cb_t action_cb)
 {
     if (!lvgl_port_lock(0)) {
         return ESP_ERR_TIMEOUT;
     }
+    s_action_cb = action_cb;
 
     lv_display_t *disp = lv_display_get_default();
     lv_theme_t *theme = lv_theme_default_init(disp, lv_palette_main(LV_PALETTE_BLUE),
