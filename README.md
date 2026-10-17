@@ -4,8 +4,11 @@ Firmware for Keyling, a USB dongle that types for your phone: it enumerates as a
 the computer it is plugged into and receives what to type over Bluetooth LE from a paired phone.
 Runs on the LilyGo T-Dongle-S3 (ESP32-S3).
 
+- Clone with `git clone --recurse-submodules` (or run `git submodule update --init` afterwards).
 - Build: PlatformIO with ESP-IDF (`pio run -e hid`; `-e dev` keeps the USB console and JTAG).
-- Protocol: `proto/bridge.proto`; reference client in `tools/client.py`.
+- Protocol: `proto/` is the [keyling-hq/protocol](https://github.com/keyling-hq/protocol)
+  submodule; after updating it, regenerate with `tools/gen_proto.py`. Reference client in
+  `tools/client.py`.
 - Android-side notes: `docs/android-handoff.md`.
 
 ## License
