@@ -12,6 +12,9 @@
 // the dongle has not processed yet. The phone's balance is zero until the following reset;
 // credit increments that arrive in between were sent before the abort and must be ignored.
 // Requests waiting for an Ack when the phone aborts may never get one.
+//
+// Disconnect: everything the dongle accepted is still typed, unacknowledged. A new session
+// starts with empty streams.
 
 // Versioning: fields are only ever added. A dongle answers requests it doesn't know with
 // RESULT_INVALID, and Hello.capabilities tells the phone what it can use before trying.

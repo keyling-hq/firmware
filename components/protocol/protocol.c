@@ -57,6 +57,9 @@ static bool abort_pending(void)
 static void send_event(const bridge_Event *event)
 {
     static uint8_t buf[2 + bridge_Event_size];
+    if (!s_session) {
+        return;
+    }
     pb_ostream_t os = pb_ostream_from_buffer(buf + 2, sizeof(buf) - 2);
     if (!pb_encode(&os, bridge_Event_fields, event)) {
         ESP_LOGE(TAG, "encode event %u: %s", (unsigned)event->which_msg, PB_GET_ERROR(&os));
@@ -360,8 +363,12 @@ static void handle_session(void)
     s_session = active;
     s_accepting = false;
     abandon_ota();
-    reset_rx();
+    /*
+     * Frames the phone already sent are still typed after a disconnect: only a new session
+     * drops what is left, which by then can only be an incomplete frame.
+     */
     if (active) {
+        reset_rx();
         s_accepting = true;
         send_hello();
         send_credits(RX_WINDOW, true);
@@ -382,9 +389,7 @@ static void protocol_task(void *arg)
         if ((bits & FLAG_STATUS) && s_session) {
             send_status();
         }
-        if (s_session) {
-            process_rx();
-        }
+        process_rx();
     }
 }
 
