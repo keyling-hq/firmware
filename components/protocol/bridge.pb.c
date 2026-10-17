@@ -33,6 +33,18 @@ PB_BIND(bridge_SetConfig, bridge_SetConfig, AUTO)
 PB_BIND(bridge_Ping, bridge_Ping, AUTO)
 
 
+PB_BIND(bridge_OtaBegin, bridge_OtaBegin, AUTO)
+
+
+PB_BIND(bridge_OtaData, bridge_OtaData, 2)
+
+
+PB_BIND(bridge_OtaEnd, bridge_OtaEnd, AUTO)
+
+
+PB_BIND(bridge_OtaAbort, bridge_OtaAbort, AUTO)
+
+
 PB_BIND(bridge_Config, bridge_Config, AUTO)
 
 

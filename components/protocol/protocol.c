@@ -6,6 +6,8 @@
 #include "esp_app_desc.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "esp_system.h"
+#include "ota_update.h"
 #include "pb_decode.h"
 #include "pb_encode.h"
 #include "typer.h"
@@ -16,6 +18,7 @@ static const char *TAG = "protocol";
 #define CREDIT_BATCH        (RX_WINDOW / 4)
 #define MAX_FRAME           bridge_Request_size
 #define ENQUEUE_POLL_MS     20
+#define RESTART_DELAY_MS    500
 
 #define FLAG_RX             BIT0
 #define FLAG_SESSION        BIT1
@@ -40,6 +43,9 @@ static size_t s_have;
 static size_t s_frame_len;
 static size_t s_consumed;
 static bridge_Request s_request;
+static bool s_restart_pending;
+static bool s_ota_reported_active;
+static uint8_t s_ota_reported_percent;
 
 static bool abort_pending(void)
 {
@@ -97,7 +103,7 @@ static void send_config(void)
 }
 
 static const char *const CAPABILITIES[] = {
-    "text", "strokes", "key_combo", "consumer", "keyboard_report", "config",
+    "text", "strokes", "key_combo", "consumer", "keyboard_report", "config", "ota",
 };
 
 static void send_hello(void)
@@ -161,11 +167,81 @@ static bridge_Result handle_strokes(const uint8_t *strokes, size_t len)
     return bridge_Result_RESULT_OK;
 }
 
+static void report_ota(bool active)
+{
+    uint8_t percent = ota_update_progress();
+    if (active != s_ota_reported_active || percent != s_ota_reported_percent) {
+        s_ota_reported_active = active;
+        s_ota_reported_percent = percent;
+        s_handlers.ota_state(active, percent, s_ctx);
+    }
+}
+
+static void abandon_ota(void)
+{
+    if (ota_update_active()) {
+        ota_update_abort();
+        report_ota(false);
+    }
+}
+
+static bridge_Result ota_result(esp_err_t err)
+{
+    switch (err) {
+    case ESP_OK:
+        return bridge_Result_RESULT_OK;
+    case ESP_ERR_INVALID_ARG:
+    case ESP_ERR_INVALID_SIZE:
+    case ESP_ERR_INVALID_STATE:
+        return bridge_Result_RESULT_INVALID;
+    default:
+        return bridge_Result_RESULT_FAILED;
+    }
+}
+
+static bridge_Result handle_ota(const bridge_Request *req)
+{
+    esp_err_t err;
+    switch (req->which_msg) {
+    case bridge_Request_ota_begin_tag:
+        report_ota(true);
+        err = ota_update_begin(req->ota_begin.size, req->ota_begin.sha256.bytes, req->ota_begin.sha256.size);
+        report_ota(err == ESP_OK);
+        return ota_result(err);
+    case bridge_Request_ota_data_tag:
+        err = ota_update_write(req->ota_data.offset, req->ota_data.data.bytes, req->ota_data.data.size);
+        if (err != ESP_OK) {
+            abandon_ota();
+        } else {
+            report_ota(true);
+        }
+        return ota_result(err);
+    case bridge_Request_ota_end_tag:
+        err = ota_update_end();
+        report_ota(false);
+        s_restart_pending = err == ESP_OK;
+        return ota_result(err);
+    default:
+        abandon_ota();
+        return bridge_Result_RESULT_OK;
+    }
+}
+
 static bridge_Result handle_request(const bridge_Request *req)
 {
     const TickType_t poll = pdMS_TO_TICKS(ENQUEUE_POLL_MS);
 
+    bool input = req->which_msg >= bridge_Request_text_tag && req->which_msg < bridge_Request_ping_tag;
+    if (input && ota_update_active()) {
+        return bridge_Result_RESULT_FAILED;
+    }
+
     switch (req->which_msg) {
+    case bridge_Request_ota_begin_tag:
+    case bridge_Request_ota_data_tag:
+    case bridge_Request_ota_end_tag:
+    case bridge_Request_ota_abort_tag:
+        return handle_ota(req);
     case bridge_Request_text_tag:
         return handle_text(req->text.text);
     case bridge_Request_strokes_tag:
@@ -203,6 +279,12 @@ static void handle_frame(const uint8_t *payload, size_t len)
         return;
     }
     send_ack(s_request.id, handle_request(&s_request));
+
+    if (s_restart_pending) {
+        ESP_LOGI(TAG, "restarting into the new firmware");
+        vTaskDelay(pdMS_TO_TICKS(RESTART_DELAY_MS));
+        esp_restart();
+    }
 }
 
 /* ---- streams ------------------------------------------------------------- */
@@ -259,6 +341,7 @@ static void process_rx(void)
 
 static void handle_abort(void)
 {
+    abandon_ota();
     typer_abort();
     reset_rx();
     if (s_session) {
@@ -276,6 +359,7 @@ static void handle_session(void)
     }
     s_session = active;
     s_accepting = false;
+    abandon_ota();
     reset_rx();
     if (active) {
         s_accepting = true;

@@ -59,6 +59,33 @@ typedef struct _bridge_Ping {
     char dummy_field;
 } bridge_Ping;
 
+typedef PB_BYTES_ARRAY_T(32) bridge_OtaBegin_sha256_t;
+/* Firmware update: OtaBegin, then OtaData in order from offset 0, then OtaEnd. While an update
+ is running, input requests fail with RESULT_FAILED. An update is abandoned if the session ends,
+ on a CTRL abort, or with OtaAbort.
+
+ OtaBegin erases the inactive app slot, so its Ack can take several seconds. After OtaEnd is
+ acknowledged the dongle restarts into the new firmware, which falls back to the previous one
+ if it fails to start. */
+typedef struct _bridge_OtaBegin {
+    uint32_t size; /* image size in bytes (the build's firmware.bin) */
+    bridge_OtaBegin_sha256_t sha256; /* SHA-256 of the whole image, checked by OtaEnd */
+} bridge_OtaBegin;
+
+typedef PB_BYTES_ARRAY_T(1000) bridge_OtaData_data_t;
+typedef struct _bridge_OtaData {
+    uint32_t offset; /* must equal the number of bytes sent so far */
+    bridge_OtaData_data_t data;
+} bridge_OtaData;
+
+typedef struct _bridge_OtaEnd {
+    char dummy_field;
+} bridge_OtaEnd;
+
+typedef struct _bridge_OtaAbort {
+    char dummy_field;
+} bridge_OtaAbort;
+
 typedef struct _bridge_Config {
     bool has_layout;
     char layout[16];
@@ -89,6 +116,10 @@ typedef struct _bridge_Request {
         bridge_Ping ping;
         bridge_GetConfig get_config;
         bridge_SetConfig set_config;
+        bridge_OtaBegin ota_begin;
+        bridge_OtaData ota_data;
+        bridge_OtaEnd ota_end;
+        bridge_OtaAbort ota_abort;
     };
 } bridge_Request;
 
@@ -154,6 +185,10 @@ extern "C" {
 
 
 
+
+
+
+
 #define bridge_Ack_result_ENUMTYPE bridge_Result
 
 
@@ -168,6 +203,10 @@ extern "C" {
 #define bridge_GetConfig_init_default            {0}
 #define bridge_SetConfig_init_default            {false, bridge_Config_init_default}
 #define bridge_Ping_init_default                 {0}
+#define bridge_OtaBegin_init_default             {0, {0, {0}}}
+#define bridge_OtaData_init_default              {0, {0, {0}}}
+#define bridge_OtaEnd_init_default               {0}
+#define bridge_OtaAbort_init_default             {0}
 #define bridge_Config_init_default               {false, "", false, 0, false, 0, 0, {"", "", "", "", "", "", "", ""}}
 #define bridge_Event_init_default                {0, {bridge_Hello_init_default}}
 #define bridge_Hello_init_default                {0, 0, "", 0, {"", "", "", "", "", "", "", "", "", "", "", ""}}
@@ -183,6 +222,10 @@ extern "C" {
 #define bridge_GetConfig_init_zero               {0}
 #define bridge_SetConfig_init_zero               {false, bridge_Config_init_zero}
 #define bridge_Ping_init_zero                    {0}
+#define bridge_OtaBegin_init_zero                {0, {0, {0}}}
+#define bridge_OtaData_init_zero                 {0, {0, {0}}}
+#define bridge_OtaEnd_init_zero                  {0}
+#define bridge_OtaAbort_init_zero                {0}
 #define bridge_Config_init_zero                  {false, "", false, 0, false, 0, 0, {"", "", "", "", "", "", "", ""}}
 #define bridge_Event_init_zero                   {0, {bridge_Hello_init_zero}}
 #define bridge_Hello_init_zero                   {0, 0, "", 0, {"", "", "", "", "", "", "", "", "", "", "", ""}}
@@ -198,6 +241,10 @@ extern "C" {
 #define bridge_Consumer_usage_tag                1
 #define bridge_KeyboardReport_modifiers_tag      1
 #define bridge_KeyboardReport_keys_tag           2
+#define bridge_OtaBegin_size_tag                 1
+#define bridge_OtaBegin_sha256_tag               2
+#define bridge_OtaData_offset_tag                1
+#define bridge_OtaData_data_tag                  2
 #define bridge_Config_layout_tag                 1
 #define bridge_Config_key_press_ms_tag           2
 #define bridge_Config_key_release_ms_tag         3
@@ -212,6 +259,10 @@ extern "C" {
 #define bridge_Request_ping_tag                  30
 #define bridge_Request_get_config_tag            31
 #define bridge_Request_set_config_tag            32
+#define bridge_Request_ota_begin_tag             40
+#define bridge_Request_ota_data_tag              41
+#define bridge_Request_ota_end_tag               42
+#define bridge_Request_ota_abort_tag             43
 #define bridge_Hello_protocol_version_tag        1
 #define bridge_Hello_max_frame_tag               2
 #define bridge_Hello_firmware_version_tag        3
@@ -239,7 +290,11 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (msg,keyboard_report,keyboard_report),  13) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,strokes,strokes),  14) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,ping,ping),  30) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,get_config,get_config),  31) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (msg,set_config,set_config),  32)
+X(a, STATIC,   ONEOF,    MESSAGE,  (msg,set_config,set_config),  32) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (msg,ota_begin,ota_begin),  40) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (msg,ota_data,ota_data),  41) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (msg,ota_end,ota_end),  42) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (msg,ota_abort,ota_abort),  43)
 #define bridge_Request_CALLBACK NULL
 #define bridge_Request_DEFAULT NULL
 #define bridge_Request_msg_text_MSGTYPE bridge_Text
@@ -250,6 +305,10 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (msg,set_config,set_config),  32)
 #define bridge_Request_msg_ping_MSGTYPE bridge_Ping
 #define bridge_Request_msg_get_config_MSGTYPE bridge_GetConfig
 #define bridge_Request_msg_set_config_MSGTYPE bridge_SetConfig
+#define bridge_Request_msg_ota_begin_MSGTYPE bridge_OtaBegin
+#define bridge_Request_msg_ota_data_MSGTYPE bridge_OtaData
+#define bridge_Request_msg_ota_end_MSGTYPE bridge_OtaEnd
+#define bridge_Request_msg_ota_abort_MSGTYPE bridge_OtaAbort
 
 #define bridge_Text_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, STRING,   text,              1)
@@ -293,6 +352,28 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  config,            1)
 
 #define bridge_Ping_CALLBACK NULL
 #define bridge_Ping_DEFAULT NULL
+
+#define bridge_OtaBegin_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT32,   size,              1) \
+X(a, STATIC,   SINGULAR, BYTES,    sha256,            2)
+#define bridge_OtaBegin_CALLBACK NULL
+#define bridge_OtaBegin_DEFAULT NULL
+
+#define bridge_OtaData_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT32,   offset,            1) \
+X(a, STATIC,   SINGULAR, BYTES,    data,              2)
+#define bridge_OtaData_CALLBACK NULL
+#define bridge_OtaData_DEFAULT NULL
+
+#define bridge_OtaEnd_FIELDLIST(X, a) \
+
+#define bridge_OtaEnd_CALLBACK NULL
+#define bridge_OtaEnd_DEFAULT NULL
+
+#define bridge_OtaAbort_FIELDLIST(X, a) \
+
+#define bridge_OtaAbort_CALLBACK NULL
+#define bridge_OtaAbort_DEFAULT NULL
 
 #define bridge_Config_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, STRING,   layout,            1) \
@@ -352,6 +433,10 @@ extern const pb_msgdesc_t bridge_KeyboardReport_msg;
 extern const pb_msgdesc_t bridge_GetConfig_msg;
 extern const pb_msgdesc_t bridge_SetConfig_msg;
 extern const pb_msgdesc_t bridge_Ping_msg;
+extern const pb_msgdesc_t bridge_OtaBegin_msg;
+extern const pb_msgdesc_t bridge_OtaData_msg;
+extern const pb_msgdesc_t bridge_OtaEnd_msg;
+extern const pb_msgdesc_t bridge_OtaAbort_msg;
 extern const pb_msgdesc_t bridge_Config_msg;
 extern const pb_msgdesc_t bridge_Event_msg;
 extern const pb_msgdesc_t bridge_Hello_msg;
@@ -369,6 +454,10 @@ extern const pb_msgdesc_t bridge_Status_msg;
 #define bridge_GetConfig_fields &bridge_GetConfig_msg
 #define bridge_SetConfig_fields &bridge_SetConfig_msg
 #define bridge_Ping_fields &bridge_Ping_msg
+#define bridge_OtaBegin_fields &bridge_OtaBegin_msg
+#define bridge_OtaData_fields &bridge_OtaData_msg
+#define bridge_OtaEnd_fields &bridge_OtaEnd_msg
+#define bridge_OtaAbort_fields &bridge_OtaAbort_msg
 #define bridge_Config_fields &bridge_Config_msg
 #define bridge_Event_fields &bridge_Event_msg
 #define bridge_Hello_fields &bridge_Hello_msg
@@ -387,6 +476,10 @@ extern const pb_msgdesc_t bridge_Status_msg;
 #define bridge_Hello_size                        249
 #define bridge_KeyCombo_size                     14
 #define bridge_KeyboardReport_size               14
+#define bridge_OtaAbort_size                     0
+#define bridge_OtaBegin_size                     40
+#define bridge_OtaData_size                      1009
+#define bridge_OtaEnd_size                       0
 #define bridge_Ping_size                         0
 #define bridge_Request_size                      1035
 #define bridge_SetConfig_size                    168

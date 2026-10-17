@@ -35,8 +35,10 @@ esp_err_t ui_start(button_handle_t btn, ui_action_cb_t action_cb);
 
 /*
  * Thread safe, callable from any task once ui_start() has returned. The show functions wake
- * the screen; the highest priority active one is displayed: passkey, typing, pairing window.
+ * the screen; the highest priority active one is displayed: firmware update, passkey, typing,
+ * pairing window.
  */
+void ui_show_update(bool active, uint8_t percent);
 void ui_set_usb_state(bool mounted);
 void ui_set_ble_state(ui_ble_state_t state);
 void ui_show_typing(bool typing);

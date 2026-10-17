@@ -14,7 +14,7 @@ typedef enum {
     STATUS_LED_OFF,
     STATUS_LED_ADVERTISING,     /* slow blue pulse */
     STATUS_LED_PAIRING,         /* fast yellow blink */
-    STATUS_LED_CONNECTED,       /* green fading to off over 1 s, then off */
+    STATUS_LED_CONNECTED,       /* green for 0.4 s, fading out by 1 s, then off */
     STATUS_LED_ERROR,           /* three red blinks, then off */
 } status_led_pattern_t;
 

@@ -10,7 +10,8 @@ static const char *TAG = "status_led";
 #define PEAK                64
 #define PULSE_PERIOD_MS     3000
 #define BLINK_HALF_MS       125
-#define FADE_MS             1000
+#define CONNECTED_HOLD_MS   400
+#define FADE_MS             600
 #define ERROR_BLINKS        3
 #define ERROR_HALF_MS       200
 
@@ -34,12 +35,19 @@ static rgb_t render(status_led_pattern_t pattern, uint32_t ms, bool *done)
     }
     case STATUS_LED_PAIRING:
         return (ms / BLINK_HALF_MS) % 2 ? (rgb_t){ 0 } : (rgb_t){ PEAK, PEAK / 2, 0 };
-    case STATUS_LED_CONNECTED:
-        if (ms >= FADE_MS) {
+    case STATUS_LED_CONNECTED: {
+        if (ms < CONNECTED_HOLD_MS) {
+            return (rgb_t){ 0, PEAK, 0 };
+        }
+        uint32_t t = ms - CONNECTED_HOLD_MS;
+        if (t >= FADE_MS) {
             *done = true;
             return (rgb_t){ 0 };
         }
-        return (rgb_t){ 0, (uint8_t)(PEAK - ms * PEAK / FADE_MS), 0 };
+        /* Squared ramp: PWM brightness is perceived roughly as its square root, so this looks linear. */
+        uint32_t left = FADE_MS - t;
+        return (rgb_t){ 0, (uint8_t)(PEAK * left * left / (FADE_MS * FADE_MS)), 0 };
+    }
     case STATUS_LED_ERROR:
         if (ms >= ERROR_BLINKS * 2 * ERROR_HALF_MS) {
             *done = true;

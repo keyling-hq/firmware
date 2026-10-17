@@ -24,43 +24,51 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0c\x62ridge.proto\x12\x06\x62ridge\"\xce\x02\n\x07Request\x12\n\n\x02id\x18\x01 \x01(\r\x12\x1c\n\x04text\x18\n \x01(\x0b\x32\x0c.bridge.TextH\x00\x12%\n\tkey_combo\x18\x0b \x01(\x0b\x32\x10.bridge.KeyComboH\x00\x12$\n\x08\x63onsumer\x18\x0c \x01(\x0b\x32\x10.bridge.ConsumerH\x00\x12\x31\n\x0fkeyboard_report\x18\r \x01(\x0b\x32\x16.bridge.KeyboardReportH\x00\x12\"\n\x07strokes\x18\x0e \x01(\x0b\x32\x0f.bridge.StrokesH\x00\x12\x1c\n\x04ping\x18\x1e \x01(\x0b\x32\x0c.bridge.PingH\x00\x12\'\n\nget_config\x18\x1f \x01(\x0b\x32\x11.bridge.GetConfigH\x00\x12\'\n\nset_config\x18  \x01(\x0b\x32\x11.bridge.SetConfigH\x00\x42\x05\n\x03msg\"\x14\n\x04Text\x12\x0c\n\x04text\x18\x01 \x01(\t\"\x1a\n\x07Strokes\x12\x0f\n\x07strokes\x18\x01 \x01(\x0c\"+\n\x08KeyCombo\x12\x11\n\tmodifiers\x18\x01 \x01(\r\x12\x0c\n\x04keys\x18\x02 \x01(\x0c\"\x19\n\x08\x43onsumer\x12\r\n\x05usage\x18\x01 \x01(\r\"1\n\x0eKeyboardReport\x12\x11\n\tmodifiers\x18\x01 \x01(\r\x12\x0c\n\x04keys\x18\x02 \x01(\x0c\"\x0b\n\tGetConfig\"+\n\tSetConfig\x12\x1e\n\x06\x63onfig\x18\x01 \x01(\x0b\x32\x0e.bridge.Config\"\x06\n\x04Ping\"\x9f\x01\n\x06\x43onfig\x12\x13\n\x06layout\x18\x01 \x01(\tH\x00\x88\x01\x01\x12\x19\n\x0ckey_press_ms\x18\x02 \x01(\rH\x01\x88\x01\x01\x12\x1b\n\x0ekey_release_ms\x18\x03 \x01(\rH\x02\x88\x01\x01\x12\x19\n\x11\x61vailable_layouts\x18\x04 \x03(\tB\t\n\x07_layoutB\x0f\n\r_key_press_msB\x11\n\x0f_key_release_ms\"\xb2\x01\n\x05\x45vent\x12\x1e\n\x05hello\x18\x01 \x01(\x0b\x32\r.bridge.HelloH\x00\x12\"\n\x07\x63redits\x18\x02 \x01(\x0b\x32\x0f.bridge.CreditsH\x00\x12\x1a\n\x03\x61\x63k\x18\x03 \x01(\x0b\x32\x0b.bridge.AckH\x00\x12 \n\x06status\x18\n \x01(\x0b\x32\x0e.bridge.StatusH\x00\x12 \n\x06\x63onfig\x18\x1e \x01(\x0b\x32\x0e.bridge.ConfigH\x00\x42\x05\n\x03msg\"d\n\x05Hello\x12\x18\n\x10protocol_version\x18\x01 \x01(\r\x12\x11\n\tmax_frame\x18\x02 \x01(\r\x12\x18\n\x10\x66irmware_version\x18\x03 \x01(\t\x12\x14\n\x0c\x63\x61pabilities\x18\x04 \x03(\t\"\'\n\x07\x43redits\x12\r\n\x05\x62ytes\x18\x01 \x01(\r\x12\r\n\x05reset\x18\x02 \x01(\x08\"1\n\x03\x41\x63k\x12\n\n\x02id\x18\x01 \x01(\r\x12\x1e\n\x06result\x18\x02 \x01(\x0e\x32\x0e.bridge.Result\"=\n\x06Status\x12\x0e\n\x06typing\x18\x01 \x01(\x08\x12\x13\n\x0busb_mounted\x18\x02 \x01(\x08\x12\x0e\n\x06layout\x18\x03 \x01(\t*R\n\x06Result\x12\r\n\tRESULT_OK\x10\x00\x12\x12\n\x0eRESULT_INVALID\x10\x01\x12\x11\n\rRESULT_FAILED\x10\x02\x12\x12\n\x0eRESULT_ABORTED\x10\x03\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0c\x62ridge.proto\x12\x06\x62ridge\"\xe4\x03\n\x07Request\x12\n\n\x02id\x18\x01 \x01(\r\x12\x1c\n\x04text\x18\n \x01(\x0b\x32\x0c.bridge.TextH\x00\x12%\n\tkey_combo\x18\x0b \x01(\x0b\x32\x10.bridge.KeyComboH\x00\x12$\n\x08\x63onsumer\x18\x0c \x01(\x0b\x32\x10.bridge.ConsumerH\x00\x12\x31\n\x0fkeyboard_report\x18\r \x01(\x0b\x32\x16.bridge.KeyboardReportH\x00\x12\"\n\x07strokes\x18\x0e \x01(\x0b\x32\x0f.bridge.StrokesH\x00\x12\x1c\n\x04ping\x18\x1e \x01(\x0b\x32\x0c.bridge.PingH\x00\x12\'\n\nget_config\x18\x1f \x01(\x0b\x32\x11.bridge.GetConfigH\x00\x12\'\n\nset_config\x18  \x01(\x0b\x32\x11.bridge.SetConfigH\x00\x12%\n\tota_begin\x18( \x01(\x0b\x32\x10.bridge.OtaBeginH\x00\x12#\n\x08ota_data\x18) \x01(\x0b\x32\x0f.bridge.OtaDataH\x00\x12!\n\x07ota_end\x18* \x01(\x0b\x32\x0e.bridge.OtaEndH\x00\x12%\n\tota_abort\x18+ \x01(\x0b\x32\x10.bridge.OtaAbortH\x00\x42\x05\n\x03msg\"\x14\n\x04Text\x12\x0c\n\x04text\x18\x01 \x01(\t\"\x1a\n\x07Strokes\x12\x0f\n\x07strokes\x18\x01 \x01(\x0c\"+\n\x08KeyCombo\x12\x11\n\tmodifiers\x18\x01 \x01(\r\x12\x0c\n\x04keys\x18\x02 \x01(\x0c\"\x19\n\x08\x43onsumer\x12\r\n\x05usage\x18\x01 \x01(\r\"1\n\x0eKeyboardReport\x12\x11\n\tmodifiers\x18\x01 \x01(\r\x12\x0c\n\x04keys\x18\x02 \x01(\x0c\"\x0b\n\tGetConfig\"+\n\tSetConfig\x12\x1e\n\x06\x63onfig\x18\x01 \x01(\x0b\x32\x0e.bridge.Config\"\x06\n\x04Ping\"(\n\x08OtaBegin\x12\x0c\n\x04size\x18\x01 \x01(\r\x12\x0e\n\x06sha256\x18\x02 \x01(\x0c\"\'\n\x07OtaData\x12\x0e\n\x06offset\x18\x01 \x01(\r\x12\x0c\n\x04\x64\x61ta\x18\x02 \x01(\x0c\"\x08\n\x06OtaEnd\"\n\n\x08OtaAbort\"\x9f\x01\n\x06\x43onfig\x12\x13\n\x06layout\x18\x01 \x01(\tH\x00\x88\x01\x01\x12\x19\n\x0ckey_press_ms\x18\x02 \x01(\rH\x01\x88\x01\x01\x12\x1b\n\x0ekey_release_ms\x18\x03 \x01(\rH\x02\x88\x01\x01\x12\x19\n\x11\x61vailable_layouts\x18\x04 \x03(\tB\t\n\x07_layoutB\x0f\n\r_key_press_msB\x11\n\x0f_key_release_ms\"\xb2\x01\n\x05\x45vent\x12\x1e\n\x05hello\x18\x01 \x01(\x0b\x32\r.bridge.HelloH\x00\x12\"\n\x07\x63redits\x18\x02 \x01(\x0b\x32\x0f.bridge.CreditsH\x00\x12\x1a\n\x03\x61\x63k\x18\x03 \x01(\x0b\x32\x0b.bridge.AckH\x00\x12 \n\x06status\x18\n \x01(\x0b\x32\x0e.bridge.StatusH\x00\x12 \n\x06\x63onfig\x18\x1e \x01(\x0b\x32\x0e.bridge.ConfigH\x00\x42\x05\n\x03msg\"d\n\x05Hello\x12\x18\n\x10protocol_version\x18\x01 \x01(\r\x12\x11\n\tmax_frame\x18\x02 \x01(\r\x12\x18\n\x10\x66irmware_version\x18\x03 \x01(\t\x12\x14\n\x0c\x63\x61pabilities\x18\x04 \x03(\t\"\'\n\x07\x43redits\x12\r\n\x05\x62ytes\x18\x01 \x01(\r\x12\r\n\x05reset\x18\x02 \x01(\x08\"1\n\x03\x41\x63k\x12\n\n\x02id\x18\x01 \x01(\r\x12\x1e\n\x06result\x18\x02 \x01(\x0e\x32\x0e.bridge.Result\"=\n\x06Status\x12\x0e\n\x06typing\x18\x01 \x01(\x08\x12\x13\n\x0busb_mounted\x18\x02 \x01(\x08\x12\x0e\n\x06layout\x18\x03 \x01(\t*R\n\x06Result\x12\r\n\tRESULT_OK\x10\x00\x12\x12\n\x0eRESULT_INVALID\x10\x01\x12\x11\n\rRESULT_FAILED\x10\x02\x12\x12\n\x0eRESULT_ABORTED\x10\x03\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'bridge_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_RESULT']._serialized_start=1200
-  _globals['_RESULT']._serialized_end=1282
+  _globals['_RESULT']._serialized_start=1455
+  _globals['_RESULT']._serialized_end=1537
   _globals['_REQUEST']._serialized_start=25
-  _globals['_REQUEST']._serialized_end=359
-  _globals['_TEXT']._serialized_start=361
-  _globals['_TEXT']._serialized_end=381
-  _globals['_STROKES']._serialized_start=383
-  _globals['_STROKES']._serialized_end=409
-  _globals['_KEYCOMBO']._serialized_start=411
-  _globals['_KEYCOMBO']._serialized_end=454
-  _globals['_CONSUMER']._serialized_start=456
-  _globals['_CONSUMER']._serialized_end=481
-  _globals['_KEYBOARDREPORT']._serialized_start=483
-  _globals['_KEYBOARDREPORT']._serialized_end=532
-  _globals['_GETCONFIG']._serialized_start=534
-  _globals['_GETCONFIG']._serialized_end=545
-  _globals['_SETCONFIG']._serialized_start=547
-  _globals['_SETCONFIG']._serialized_end=590
-  _globals['_PING']._serialized_start=592
-  _globals['_PING']._serialized_end=598
-  _globals['_CONFIG']._serialized_start=601
-  _globals['_CONFIG']._serialized_end=760
-  _globals['_EVENT']._serialized_start=763
-  _globals['_EVENT']._serialized_end=941
-  _globals['_HELLO']._serialized_start=943
-  _globals['_HELLO']._serialized_end=1043
-  _globals['_CREDITS']._serialized_start=1045
-  _globals['_CREDITS']._serialized_end=1084
-  _globals['_ACK']._serialized_start=1086
-  _globals['_ACK']._serialized_end=1135
-  _globals['_STATUS']._serialized_start=1137
-  _globals['_STATUS']._serialized_end=1198
+  _globals['_REQUEST']._serialized_end=509
+  _globals['_TEXT']._serialized_start=511
+  _globals['_TEXT']._serialized_end=531
+  _globals['_STROKES']._serialized_start=533
+  _globals['_STROKES']._serialized_end=559
+  _globals['_KEYCOMBO']._serialized_start=561
+  _globals['_KEYCOMBO']._serialized_end=604
+  _globals['_CONSUMER']._serialized_start=606
+  _globals['_CONSUMER']._serialized_end=631
+  _globals['_KEYBOARDREPORT']._serialized_start=633
+  _globals['_KEYBOARDREPORT']._serialized_end=682
+  _globals['_GETCONFIG']._serialized_start=684
+  _globals['_GETCONFIG']._serialized_end=695
+  _globals['_SETCONFIG']._serialized_start=697
+  _globals['_SETCONFIG']._serialized_end=740
+  _globals['_PING']._serialized_start=742
+  _globals['_PING']._serialized_end=748
+  _globals['_OTABEGIN']._serialized_start=750
+  _globals['_OTABEGIN']._serialized_end=790
+  _globals['_OTADATA']._serialized_start=792
+  _globals['_OTADATA']._serialized_end=831
+  _globals['_OTAEND']._serialized_start=833
+  _globals['_OTAEND']._serialized_end=841
+  _globals['_OTAABORT']._serialized_start=843
+  _globals['_OTAABORT']._serialized_end=853
+  _globals['_CONFIG']._serialized_start=856
+  _globals['_CONFIG']._serialized_end=1015
+  _globals['_EVENT']._serialized_start=1018
+  _globals['_EVENT']._serialized_end=1196
+  _globals['_HELLO']._serialized_start=1198
+  _globals['_HELLO']._serialized_end=1298
+  _globals['_CREDITS']._serialized_start=1300
+  _globals['_CREDITS']._serialized_end=1339
+  _globals['_ACK']._serialized_start=1341
+  _globals['_ACK']._serialized_end=1390
+  _globals['_STATUS']._serialized_start=1392
+  _globals['_STATUS']._serialized_end=1453
 # @@protoc_insertion_point(module_scope)

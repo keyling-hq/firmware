@@ -5,6 +5,7 @@
 #include "esp_check.h"
 #include "esp_log.h"
 #include "keymap.h"
+#include "ota_update.h"
 #include "protocol.h"
 #include "settings.h"
 #include "status_led.h"
@@ -201,6 +202,11 @@ static void proto_get_status(bridge_Status *out, void *ctx)
     strlcpy(out->layout, settings.layout, sizeof(out->layout));
 }
 
+static void proto_ota_state(bool active, uint8_t percent, void *ctx)
+{
+    ui_show_update(active, percent);
+}
+
 /* ---- BLE ----------------------------------------------------------------- */
 
 static ui_ble_state_t ui_ble_state_for(const ble_link_status_t *status)
@@ -289,6 +295,7 @@ esp_err_t app_start(void)
         .get_config = proto_get_config,
         .set_config = proto_set_config,
         .get_status = proto_get_status,
+        .ota_state = proto_ota_state,
     };
     ESP_RETURN_ON_ERROR(protocol_start(&protocol_handlers, NULL), TAG, "protocol");
 
@@ -303,5 +310,8 @@ esp_err_t app_start(void)
         .bridge_abort = ble_bridge_abort_cb,
     };
     ESP_RETURN_ON_ERROR(ble_link_start(settings.ble_name, &ble_callbacks, NULL), TAG, "ble");
+
+    /* Everything a phone needs to push a fix came up: an updated image is safe to keep. */
+    ota_update_confirm_boot();
     return ESP_OK;
 }

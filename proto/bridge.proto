@@ -40,6 +40,11 @@ message Request {
         Ping ping = 30;
         GetConfig get_config = 31;
         SetConfig set_config = 32;
+
+        OtaBegin ota_begin = 40;
+        OtaData ota_data = 41;
+        OtaEnd ota_end = 42;
+        OtaAbort ota_abort = 43;
     }
 }
 
@@ -81,6 +86,27 @@ message SetConfig {
 }
 
 message Ping {}
+
+// Firmware update: OtaBegin, then OtaData in order from offset 0, then OtaEnd. While an update
+// is running, input requests fail with RESULT_FAILED. An update is abandoned if the session ends,
+// on a CTRL abort, or with OtaAbort.
+//
+// OtaBegin erases the inactive app slot, so its Ack can take several seconds. After OtaEnd is
+// acknowledged the dongle restarts into the new firmware, which falls back to the previous one
+// if it fails to start.
+message OtaBegin {
+    uint32 size = 1;        // image size in bytes (the build's firmware.bin)
+    bytes sha256 = 2;       // SHA-256 of the whole image, checked by OtaEnd
+}
+
+message OtaData {
+    uint32 offset = 1;      // must equal the number of bytes sent so far
+    bytes data = 2;
+}
+
+message OtaEnd {}
+
+message OtaAbort {}
 
 message Config {
     optional string layout = 1;

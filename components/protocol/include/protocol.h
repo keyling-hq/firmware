@@ -19,6 +19,8 @@ typedef struct {
     void (*get_config)(bridge_Config *out, void *ctx);
     bridge_Result (*set_config)(const bridge_Config *in, void *ctx);
     void (*get_status)(bridge_Status *out, void *ctx);
+    /** Firmware update started, progressed or stopped. After a successful one the dongle restarts. */
+    void (*ota_state)(bool active, uint8_t percent, void *ctx);
 } protocol_handlers_t;
 
 esp_err_t protocol_start(const protocol_handlers_t *handlers, void *ctx);

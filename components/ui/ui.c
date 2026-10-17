@@ -23,6 +23,7 @@ typedef enum {
     OVERLAY_PAIRING,
     OVERLAY_TYPING,
     OVERLAY_PASSKEY,
+    OVERLAY_UPDATE,
 } overlay_t;
 
 static void navigate(menu_fn_t fn);
@@ -40,6 +41,9 @@ static bool s_typing;
 static bool s_pairing;
 static bool s_passkey_shown;
 static uint32_t s_passkey;
+static bool s_updating;
+static uint8_t s_update_percent;
+static lv_obj_t *s_update_label;
 static overlay_t s_overlay = OVERLAY_NONE;
 
 static void screen_set(bool on)
@@ -132,6 +136,7 @@ static lv_obj_t *menu_begin(const char *title, menu_fn_t back)
 {
     s_back = back;
     s_status = NULL;
+    s_update_label = NULL;
 
     lv_group_t *group = lv_group_create();
     lv_group_set_wrap(group, true);
@@ -382,10 +387,29 @@ static void show_passkey(void)
     menu_end(list, NULL);
 }
 
+static void set_update_label(void)
+{
+    if (s_update_label) {
+        lv_label_set_text_fmt(s_update_label, "%u%%", s_update_percent);
+    }
+}
+
+static void show_update(void)
+{
+    lv_obj_t *list = menu_begin("Updating firmware", NULL);
+    s_update_label = lv_label_create(list);
+    lv_obj_set_style_text_font(s_update_label, &lv_font_montserrat_24, 0);
+    lv_obj_set_width(s_update_label, lv_pct(100));
+    lv_obj_set_style_text_align(s_update_label, LV_TEXT_ALIGN_CENTER, 0);
+    set_update_label();
+    menu_end(list, NULL);
+}
+
 /* Must hold the LVGL lock. */
 static void update_overlay(void)
 {
-    overlay_t want = s_passkey_shown ? OVERLAY_PASSKEY
+    overlay_t want = s_updating      ? OVERLAY_UPDATE
+                     : s_passkey_shown ? OVERLAY_PASSKEY
                      : s_typing      ? OVERLAY_TYPING
                      : s_pairing     ? OVERLAY_PAIRING
                      : OVERLAY_NONE;
@@ -401,6 +425,7 @@ static void update_overlay(void)
         [OVERLAY_PAIRING] = show_pairing,
         [OVERLAY_TYPING] = show_typing,
         [OVERLAY_PASSKEY] = show_passkey,
+        [OVERLAY_UPDATE] = show_update,
     };
     navigate(screens[want]);
 }
@@ -443,6 +468,18 @@ void ui_show_pairing(bool open)
         return;
     }
     s_pairing = open;
+    update_overlay();
+    lvgl_port_unlock();
+}
+
+void ui_show_update(bool active, uint8_t percent)
+{
+    if (!lvgl_port_lock(0)) {
+        return;
+    }
+    s_updating = active;
+    s_update_percent = percent;
+    set_update_label();
     update_overlay();
     lvgl_port_unlock();
 }

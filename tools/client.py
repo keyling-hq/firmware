@@ -9,6 +9,7 @@ One command per connection:
     tools/.venv/Scripts/python tools/client.py config layout=es-419 press=5
     tools/.venv/Scripts/python tools/client.py stress 20000
     tools/.venv/Scripts/python tools/client.py stress 20000 --abort-after 5
+    tools/.venv/Scripts/python tools/client.py ota .pio/build/hid/firmware.bin
 
 Interactive, many commands over one connection (commands run in the background, so
 `abort` works while a `stress` is still going):
@@ -20,6 +21,7 @@ The PC must be bonded with the dongle. The dongle has a single owner: pair it wi
 
 import argparse
 import asyncio
+import hashlib
 import shlex
 import struct
 import sys
@@ -247,6 +249,40 @@ async def type_text(bridge, text, label):
     print(f"{label}: typed {len(text)} chars in {dt:.1f} s ({len(text) / dt:.0f} chars/s)")
 
 
+OTA_CHUNK = 990
+OTA_IN_FLIGHT = 8
+
+
+async def ota(bridge, path):
+    image = path.read_bytes()
+    digest = hashlib.sha256(image).digest()
+    print(f"{path.name}: {len(image)} B, sha256 {digest.hex()[:16]}...")
+    t0 = time.monotonic()
+
+    print("erasing the update slot...")
+    result = await bridge.request(pb.Request(ota_begin=pb.OtaBegin(size=len(image), sha256=digest)))
+    if result != pb.RESULT_OK:
+        raise CommandError("dongle refused the update")
+
+    in_flight = []
+    for offset in range(0, len(image), OTA_CHUNK):
+        req = pb.Request(ota_data=pb.OtaData(offset=offset, data=image[offset:offset + OTA_CHUNK]))
+        in_flight.append(asyncio.create_task(bridge.request(req)))
+        if len(in_flight) >= OTA_IN_FLIGHT:
+            if await in_flight.pop(0) != pb.RESULT_OK:
+                raise CommandError("\nupdate failed while sending data")
+        sent = min(offset + OTA_CHUNK, len(image))
+        print(f"\r  {sent * 100 // len(image)}% ({sent}/{len(image)} B)", end="")
+    if any(result != pb.RESULT_OK for result in await asyncio.gather(*in_flight)):
+        raise CommandError("\nupdate failed while sending data")
+
+    result = await bridge.request(pb.Request(ota_end=pb.OtaEnd()))
+    if result != pb.RESULT_OK:
+        raise CommandError("\nimage rejected by the dongle")
+    dt = time.monotonic() - t0
+    print(f"\nupdate written in {dt:.1f} s ({len(image) / dt / 1024:.1f} KB/s); the dongle is restarting")
+
+
 async def execute(bridge, args):
     if args.command == "type":
         text = Path(args.file).read_text(encoding="utf-8") if args.file else " ".join(args.text)
@@ -273,6 +309,9 @@ async def execute(bridge, args):
         for i in range(0, len(packed), 990):
             await bridge.request(pb.Request(strokes=pb.Strokes(strokes=packed[i:i + 990])))
         await bridge.wait_idle(timeout=max(30, len(packed) / 60))
+
+    elif args.command == "ota":
+        await ota(bridge, Path(args.image))
 
     elif args.command == "combo":
         modifiers, keys = parse_combo(args.spec)
@@ -343,9 +382,19 @@ def add_commands(sub):
     p.add_argument("key")
     p = sub.add_parser("config", help="show config, or set layout=, press=, release=")
     p.add_argument("settings", nargs="*")
+    p = sub.add_parser("ota", help="update the firmware, e.g. .pio/build/hid/firmware.bin")
+    p.add_argument("image")
     sub.add_parser("ping")
     sub.add_parser("abort", help="stop typing and drop everything pending")
     sub.add_parser("status", help="last Status reported by the dongle")
+
+
+def split_line(line):
+    """shlex-style splitting with quotes, but backslashes kept so Windows paths survive."""
+    lexer = shlex.shlex(line, posix=True)
+    lexer.whitespace_split = True
+    lexer.escape = ""
+    return list(lexer)
 
 
 async def shell(bridge):
@@ -364,7 +413,7 @@ async def shell(bridge):
         if not line.strip():
             continue
         try:
-            args = parser.parse_args(shlex.split(line))
+            args = parser.parse_args(split_line(line))
         except (CommandError, ValueError) as e:
             if str(e):
                 print(e)
@@ -385,6 +434,8 @@ async def shell(bridge):
                 print(e)
             except asyncio.TimeoutError:
                 print(f"{a.command}: timed out")
+            except Exception as e:
+                print(f"{a.command}: {type(e).__name__}: {e}")
 
         task = asyncio.create_task(run())
         tasks.add(task)
