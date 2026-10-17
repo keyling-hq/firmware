@@ -6,3 +6,4 @@ sdkconfig.*
 !sdkconfig.*.defaults
 tools/.venv/
 __pycache__/
+local/

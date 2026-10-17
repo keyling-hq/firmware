@@ -9,8 +9,6 @@ Runs on the LilyGo T-Dongle-S3 (ESP32-S3).
 - Protocol: `proto/` is the [keyling-hq/protocol](https://github.com/keyling-hq/protocol)
   submodule; after updating it, regenerate with `tools/gen_proto.py`. Reference client in
   `tools/client.py`.
-- Android-side notes: `docs/android-handoff.md`.
-
 ## License
 
 Copyright (C) 2026 the Keyling authors.
