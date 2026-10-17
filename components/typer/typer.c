@@ -16,6 +16,7 @@ typedef enum {
     ITEM_COMBO,
     ITEM_CONSUMER,
     ITEM_REPORT,
+    ITEM_STROKES,
     ITEM_RELEASE,
 } item_type_t;
 
@@ -129,11 +130,27 @@ static esp_err_t type_text(const uint8_t *text, size_t len)
     return ESP_OK;
 }
 
+static esp_err_t type_strokes(const uint8_t *strokes, size_t len)
+{
+    for (size_t i = 0; i + TYPER_STROKE_SIZE <= len && !aborted(); i += TYPER_STROKE_SIZE) {
+        uint8_t modifiers = strokes[i];
+        uint8_t keys[USB_HID_KEYBOARD_KEYS] = { strokes[i + 1] };
+        bool caps = usb_hid_keyboard_leds() & CAPS_LOCK_LED;
+        if (caps && (strokes[i + 2] & TYPER_STROKE_CAPS)) {
+            modifiers ^= KEYMAP_MOD_LSHIFT;
+        }
+        ESP_RETURN_ON_ERROR(tap(modifiers, keys), TAG, "stroke");
+    }
+    return ESP_OK;
+}
+
 static esp_err_t process(const item_header_t *hdr, const uint8_t *payload, size_t payload_len)
 {
     switch (hdr->type) {
     case ITEM_TEXT:
         return type_text(payload, payload_len);
+    case ITEM_STROKES:
+        return type_strokes(payload, payload_len);
     case ITEM_COMBO:
         return tap(hdr->modifiers, hdr->keys);
     case ITEM_CONSUMER:
@@ -243,6 +260,19 @@ esp_err_t typer_text(const char *utf8, size_t len, TickType_t wait)
         size_t chunk = len < TYPER_TEXT_CHUNK ? len : TYPER_TEXT_CHUNK;
         ESP_RETURN_ON_ERROR(enqueue(&hdr, utf8, chunk, wait), TAG, "text");
         utf8 += chunk;
+        len -= chunk;
+    }
+    return ESP_OK;
+}
+
+esp_err_t typer_strokes(const uint8_t *strokes, size_t len, TickType_t wait)
+{
+    ESP_RETURN_ON_FALSE(len % TYPER_STROKE_SIZE == 0, ESP_ERR_INVALID_ARG, TAG, "partial stroke");
+    item_header_t hdr = { .type = ITEM_STROKES };
+    while (len) {
+        size_t chunk = len < TYPER_STROKES_CHUNK ? len : TYPER_STROKES_CHUNK;
+        ESP_RETURN_ON_ERROR(enqueue(&hdr, strokes, chunk, wait), TAG, "strokes");
+        strokes += chunk;
         len -= chunk;
     }
     return ESP_OK;

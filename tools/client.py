@@ -55,6 +55,22 @@ KEYS.update({str(d): 0x1E + (d - 1) for d in range(1, 10)})
 KEYS["0"] = 0x27
 KEYS.update({f"f{n}": 0x3A + n - 1 for n in range(1, 13)})
 
+STROKE_CAPS = 0x01
+SHIFT = 0x02
+
+# en-US only: enough to exercise phone-side translation. char -> (modifiers, keycode, flags)
+US_STROKES = {" ": (0, 0x2C, 0), "\n": (0, 0x28, 0), "\t": (0, 0x2B, 0)}
+US_STROKES.update({chr(ord("a") + i): (0, 0x04 + i, STROKE_CAPS) for i in range(26)})
+US_STROKES.update({chr(ord("A") + i): (SHIFT, 0x04 + i, STROKE_CAPS) for i in range(26)})
+US_STROKES.update({str(d): (0, 0x1E + d - 1, 0) for d in range(1, 10)})
+US_STROKES["0"] = (0, 0x27, 0)
+for plain, shifted, key in zip("-=[]\\;'`,./", "_+{}|:\"~<>?",
+                               (0x2D, 0x2E, 0x2F, 0x30, 0x31, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38)):
+    US_STROKES[plain] = (0, key, 0)
+    US_STROKES[shifted] = (SHIFT, key, 0)
+for ch, key in zip("!@#$%^&*()", range(0x1E, 0x28)):
+    US_STROKES[ch] = (SHIFT, key, 0)
+
 MEDIA = {
     "play_pause": 0xCD, "next": 0xB5, "prev": 0xB6, "stop": 0xB7,
     "mute": 0xE2, "volume_up": 0xE9, "volume_down": 0xEA,
@@ -118,8 +134,9 @@ class Bridge:
         hello = await asyncio.wait_for(self.hello, 5)
         while self.credits == 0:
             await self._wait_credits()
-        print(f"connected: protocol v{hello.protocol_version}, max frame {hello.max_frame} B, "
-              f"mtu {self.client.mtu_size}, credits {self.credits}")
+        print(f"connected: firmware {hello.firmware_version}, protocol v{hello.protocol_version}, "
+              f"max frame {hello.max_frame} B, mtu {self.client.mtu_size}, credits {self.credits}")
+        print(f"capabilities: {', '.join(hello.capabilities)}")
 
     def _on_notify(self, _char, data):
         self.rx += data
@@ -246,6 +263,17 @@ async def execute(bridge, args):
         else:
             await type_text(bridge, text, "stress")
 
+    elif args.command == "strokes":
+        text = " ".join(args.text)
+        missing = sorted({ch for ch in text if ch not in US_STROKES})
+        if missing:
+            print(f"no en-US mapping for {missing}, skipped")
+        packed = bytes(b for ch in text if ch in US_STROKES for b in US_STROKES[ch])
+        bridge.expect_typing()
+        for i in range(0, len(packed), 990):
+            await bridge.request(pb.Request(strokes=pb.Strokes(strokes=packed[i:i + 990])))
+        await bridge.wait_idle(timeout=max(30, len(packed) / 60))
+
     elif args.command == "combo":
         modifiers, keys = parse_combo(args.spec)
         await bridge.request(pb.Request(key_combo=pb.KeyCombo(modifiers=modifiers, keys=keys)))
@@ -304,6 +332,8 @@ def add_commands(sub):
     p = sub.add_parser("type", help="type text")
     p.add_argument("text", nargs="*")
     p.add_argument("--file", help="type the contents of a UTF-8 file")
+    p = sub.add_parser("strokes", help="translate text to en-US keystrokes here and send them as Strokes")
+    p.add_argument("text", nargs="*")
     p = sub.add_parser("stress", help="type N bytes to exercise flow control")
     p.add_argument("bytes", type=int)
     p.add_argument("--abort-after", type=float, metavar="S", help="abort through CTRL after S seconds")

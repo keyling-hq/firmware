@@ -3,6 +3,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/stream_buffer.h"
+#include "esp_app_desc.h"
 #include "esp_check.h"
 #include "esp_log.h"
 #include "pb_decode.h"
@@ -95,11 +96,23 @@ static void send_config(void)
     send_event(&event);
 }
 
+static const char *const CAPABILITIES[] = {
+    "text", "strokes", "key_combo", "consumer", "keyboard_report", "config",
+};
+
 static void send_hello(void)
 {
     bridge_Event event = { .which_msg = bridge_Event_hello_tag };
     event.hello.protocol_version = PROTOCOL_VERSION;
     event.hello.max_frame = MAX_FRAME;
+    strlcpy(event.hello.firmware_version, esp_app_get_description()->version,
+            sizeof(event.hello.firmware_version));
+    _Static_assert(sizeof(CAPABILITIES) / sizeof(CAPABILITIES[0]) <=
+                   sizeof(event.hello.capabilities) / sizeof(event.hello.capabilities[0]), "capabilities");
+    for (size_t i = 0; i < sizeof(CAPABILITIES) / sizeof(CAPABILITIES[0]); i++) {
+        strlcpy(event.hello.capabilities[i], CAPABILITIES[i], sizeof(event.hello.capabilities[i]));
+    }
+    event.hello.capabilities_count = sizeof(CAPABILITIES) / sizeof(CAPABILITIES[0]);
     send_event(&event);
 }
 
@@ -131,6 +144,23 @@ static bridge_Result handle_text(const char *text)
     return bridge_Result_RESULT_OK;
 }
 
+static bridge_Result handle_strokes(const uint8_t *strokes, size_t len)
+{
+    if (len % TYPER_STROKE_SIZE) {
+        return bridge_Result_RESULT_INVALID;
+    }
+    while (len) {
+        size_t chunk = len < TYPER_STROKES_CHUNK ? len : TYPER_STROKES_CHUNK;
+        bridge_Result result = ENQUEUE(typer_strokes(strokes, chunk, pdMS_TO_TICKS(ENQUEUE_POLL_MS)));
+        if (result != bridge_Result_RESULT_OK) {
+            return result;
+        }
+        strokes += chunk;
+        len -= chunk;
+    }
+    return bridge_Result_RESULT_OK;
+}
+
 static bridge_Result handle_request(const bridge_Request *req)
 {
     const TickType_t poll = pdMS_TO_TICKS(ENQUEUE_POLL_MS);
@@ -138,6 +168,8 @@ static bridge_Result handle_request(const bridge_Request *req)
     switch (req->which_msg) {
     case bridge_Request_text_tag:
         return handle_text(req->text.text);
+    case bridge_Request_strokes_tag:
+        return handle_strokes(req->strokes.strokes.bytes, req->strokes.strokes.size);
     case bridge_Request_key_combo_tag:
         return ENQUEUE(typer_combo(req->key_combo.modifiers, req->key_combo.keys.bytes,
                                    req->key_combo.keys.size, poll));

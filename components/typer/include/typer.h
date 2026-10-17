@@ -34,6 +34,16 @@ void typer_set_timing(uint8_t key_press_ms, uint8_t key_release_ms);
  */
 esp_err_t typer_text(const char *utf8, size_t len, TickType_t wait);
 
+#define TYPER_STROKE_SIZE       3       /* modifiers, keycode, flags */
+#define TYPER_STROKE_CAPS       0x01    /* invert Shift while the host has Caps Lock on */
+#define TYPER_STROKES_CHUNK     (85 * TYPER_STROKE_SIZE)
+
+/**
+ * Queue keystrokes translated elsewhere, each pressed and released with the configured timing.
+ * len must be a multiple of TYPER_STROKE_SIZE.
+ */
+esp_err_t typer_strokes(const uint8_t *strokes, size_t len, TickType_t wait);
+
 /** Queue a chord: modifiers plus up to 6 keys pressed together, then released. */
 esp_err_t typer_combo(uint8_t modifiers, const uint8_t *keys, size_t key_count, TickType_t wait);
 

@@ -23,6 +23,15 @@ typedef struct _bridge_Text {
     char text[1024];
 } bridge_Text;
 
+typedef PB_BYTES_ARRAY_T(1020) bridge_Strokes_strokes_t;
+/* Keystrokes already translated by the phone, typed with the dongle's timing.
+ Packed 3-byte entries: [modifiers, keycode, flags]. Each is pressed, then released.
+ flags bit 0: the key is affected by Caps Lock; the dongle inverts Shift while the host has
+ Caps Lock on, since only the dongle sees that state. */
+typedef struct _bridge_Strokes {
+    bridge_Strokes_strokes_t strokes;
+} bridge_Strokes;
+
 typedef PB_BYTES_ARRAY_T(6) bridge_KeyCombo_keys_t;
 /* Pressed together, then released. */
 typedef struct _bridge_KeyCombo {
@@ -76,9 +85,10 @@ typedef struct _bridge_Request {
         bridge_KeyCombo key_combo;
         bridge_Consumer consumer;
         bridge_KeyboardReport keyboard_report;
+        bridge_Strokes strokes;
+        bridge_Ping ping;
         bridge_GetConfig get_config;
         bridge_SetConfig set_config;
-        bridge_Ping ping;
     };
 } bridge_Request;
 
@@ -86,6 +96,11 @@ typedef struct _bridge_Request {
 typedef struct _bridge_Hello {
     uint32_t protocol_version;
     uint32_t max_frame; /* largest CMD frame payload the dongle accepts */
+    char firmware_version[32];
+    /* Request families this firmware handles, e.g. "text", "strokes", "key_combo", "consumer",
+ "keyboard_report", "config", "ota". */
+    pb_size_t capabilities_count;
+    char capabilities[12][16];
 } bridge_Hello;
 
 typedef struct _bridge_Credits {
@@ -138,6 +153,7 @@ extern "C" {
 
 
 
+
 #define bridge_Ack_result_ENUMTYPE bridge_Result
 
 
@@ -145,6 +161,7 @@ extern "C" {
 /* Initializer values for message structs */
 #define bridge_Request_init_default              {0, 0, {bridge_Text_init_default}}
 #define bridge_Text_init_default                 {""}
+#define bridge_Strokes_init_default              {{0, {0}}}
 #define bridge_KeyCombo_init_default             {0, {0, {0}}}
 #define bridge_Consumer_init_default             {0}
 #define bridge_KeyboardReport_init_default       {0, {0, {0}}}
@@ -153,12 +170,13 @@ extern "C" {
 #define bridge_Ping_init_default                 {0}
 #define bridge_Config_init_default               {false, "", false, 0, false, 0, 0, {"", "", "", "", "", "", "", ""}}
 #define bridge_Event_init_default                {0, {bridge_Hello_init_default}}
-#define bridge_Hello_init_default                {0, 0}
+#define bridge_Hello_init_default                {0, 0, "", 0, {"", "", "", "", "", "", "", "", "", "", "", ""}}
 #define bridge_Credits_init_default              {0, 0}
 #define bridge_Ack_init_default                  {0, _bridge_Result_MIN}
 #define bridge_Status_init_default               {0, 0, ""}
 #define bridge_Request_init_zero                 {0, 0, {bridge_Text_init_zero}}
 #define bridge_Text_init_zero                    {""}
+#define bridge_Strokes_init_zero                 {{0, {0}}}
 #define bridge_KeyCombo_init_zero                {0, {0, {0}}}
 #define bridge_Consumer_init_zero                {0}
 #define bridge_KeyboardReport_init_zero          {0, {0, {0}}}
@@ -167,13 +185,14 @@ extern "C" {
 #define bridge_Ping_init_zero                    {0}
 #define bridge_Config_init_zero                  {false, "", false, 0, false, 0, 0, {"", "", "", "", "", "", "", ""}}
 #define bridge_Event_init_zero                   {0, {bridge_Hello_init_zero}}
-#define bridge_Hello_init_zero                   {0, 0}
+#define bridge_Hello_init_zero                   {0, 0, "", 0, {"", "", "", "", "", "", "", "", "", "", "", ""}}
 #define bridge_Credits_init_zero                 {0, 0}
 #define bridge_Ack_init_zero                     {0, _bridge_Result_MIN}
 #define bridge_Status_init_zero                  {0, 0, ""}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define bridge_Text_text_tag                     1
+#define bridge_Strokes_strokes_tag               1
 #define bridge_KeyCombo_modifiers_tag            1
 #define bridge_KeyCombo_keys_tag                 2
 #define bridge_Consumer_usage_tag                1
@@ -189,11 +208,14 @@ extern "C" {
 #define bridge_Request_key_combo_tag             11
 #define bridge_Request_consumer_tag              12
 #define bridge_Request_keyboard_report_tag       13
-#define bridge_Request_get_config_tag            14
-#define bridge_Request_set_config_tag            15
-#define bridge_Request_ping_tag                  16
+#define bridge_Request_strokes_tag               14
+#define bridge_Request_ping_tag                  30
+#define bridge_Request_get_config_tag            31
+#define bridge_Request_set_config_tag            32
 #define bridge_Hello_protocol_version_tag        1
 #define bridge_Hello_max_frame_tag               2
+#define bridge_Hello_firmware_version_tag        3
+#define bridge_Hello_capabilities_tag            4
 #define bridge_Credits_bytes_tag                 1
 #define bridge_Credits_reset_tag                 2
 #define bridge_Ack_id_tag                        1
@@ -204,8 +226,8 @@ extern "C" {
 #define bridge_Event_hello_tag                   1
 #define bridge_Event_credits_tag                 2
 #define bridge_Event_ack_tag                     3
-#define bridge_Event_status_tag                  4
-#define bridge_Event_config_tag                  5
+#define bridge_Event_status_tag                  10
+#define bridge_Event_config_tag                  30
 
 /* Struct field encoding specification for nanopb */
 #define bridge_Request_FIELDLIST(X, a) \
@@ -214,23 +236,30 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (msg,text,text),  10) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,key_combo,key_combo),  11) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,consumer,consumer),  12) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,keyboard_report,keyboard_report),  13) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (msg,get_config,get_config),  14) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (msg,set_config,set_config),  15) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (msg,ping,ping),  16)
+X(a, STATIC,   ONEOF,    MESSAGE,  (msg,strokes,strokes),  14) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (msg,ping,ping),  30) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (msg,get_config,get_config),  31) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (msg,set_config,set_config),  32)
 #define bridge_Request_CALLBACK NULL
 #define bridge_Request_DEFAULT NULL
 #define bridge_Request_msg_text_MSGTYPE bridge_Text
 #define bridge_Request_msg_key_combo_MSGTYPE bridge_KeyCombo
 #define bridge_Request_msg_consumer_MSGTYPE bridge_Consumer
 #define bridge_Request_msg_keyboard_report_MSGTYPE bridge_KeyboardReport
+#define bridge_Request_msg_strokes_MSGTYPE bridge_Strokes
+#define bridge_Request_msg_ping_MSGTYPE bridge_Ping
 #define bridge_Request_msg_get_config_MSGTYPE bridge_GetConfig
 #define bridge_Request_msg_set_config_MSGTYPE bridge_SetConfig
-#define bridge_Request_msg_ping_MSGTYPE bridge_Ping
 
 #define bridge_Text_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, STRING,   text,              1)
 #define bridge_Text_CALLBACK NULL
 #define bridge_Text_DEFAULT NULL
+
+#define bridge_Strokes_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, BYTES,    strokes,           1)
+#define bridge_Strokes_CALLBACK NULL
+#define bridge_Strokes_DEFAULT NULL
 
 #define bridge_KeyCombo_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   modifiers,         1) \
@@ -277,8 +306,8 @@ X(a, STATIC,   REPEATED, STRING,   available_layouts,   4)
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,hello,hello),   1) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,credits,credits),   2) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,ack,ack),     3) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (msg,status,status),   4) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (msg,config,config),   5)
+X(a, STATIC,   ONEOF,    MESSAGE,  (msg,status,status),  10) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (msg,config,config),  30)
 #define bridge_Event_CALLBACK NULL
 #define bridge_Event_DEFAULT NULL
 #define bridge_Event_msg_hello_MSGTYPE bridge_Hello
@@ -289,7 +318,9 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (msg,config,config),   5)
 
 #define bridge_Hello_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   protocol_version,   1) \
-X(a, STATIC,   SINGULAR, UINT32,   max_frame,         2)
+X(a, STATIC,   SINGULAR, UINT32,   max_frame,         2) \
+X(a, STATIC,   SINGULAR, STRING,   firmware_version,   3) \
+X(a, STATIC,   REPEATED, STRING,   capabilities,      4)
 #define bridge_Hello_CALLBACK NULL
 #define bridge_Hello_DEFAULT NULL
 
@@ -314,6 +345,7 @@ X(a, STATIC,   SINGULAR, STRING,   layout,            3)
 
 extern const pb_msgdesc_t bridge_Request_msg;
 extern const pb_msgdesc_t bridge_Text_msg;
+extern const pb_msgdesc_t bridge_Strokes_msg;
 extern const pb_msgdesc_t bridge_KeyCombo_msg;
 extern const pb_msgdesc_t bridge_Consumer_msg;
 extern const pb_msgdesc_t bridge_KeyboardReport_msg;
@@ -330,6 +362,7 @@ extern const pb_msgdesc_t bridge_Status_msg;
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define bridge_Request_fields &bridge_Request_msg
 #define bridge_Text_fields &bridge_Text_msg
+#define bridge_Strokes_fields &bridge_Strokes_msg
 #define bridge_KeyCombo_fields &bridge_KeyCombo_msg
 #define bridge_Consumer_fields &bridge_Consumer_msg
 #define bridge_KeyboardReport_fields &bridge_KeyboardReport_msg
@@ -349,15 +382,16 @@ extern const pb_msgdesc_t bridge_Status_msg;
 #define bridge_Config_size                       165
 #define bridge_Consumer_size                     6
 #define bridge_Credits_size                      8
-#define bridge_Event_size                        168
+#define bridge_Event_size                        252
 #define bridge_GetConfig_size                    0
-#define bridge_Hello_size                        12
+#define bridge_Hello_size                        249
 #define bridge_KeyCombo_size                     14
 #define bridge_KeyboardReport_size               14
 #define bridge_Ping_size                         0
 #define bridge_Request_size                      1035
 #define bridge_SetConfig_size                    168
 #define bridge_Status_size                       21
+#define bridge_Strokes_size                      1023
 #define bridge_Text_size                         1026
 
 #ifdef __cplusplus

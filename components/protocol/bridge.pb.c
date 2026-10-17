@@ -12,6 +12,9 @@ PB_BIND(bridge_Request, bridge_Request, 2)
 PB_BIND(bridge_Text, bridge_Text, 2)
 
 
+PB_BIND(bridge_Strokes, bridge_Strokes, 2)
+
+
 PB_BIND(bridge_KeyCombo, bridge_KeyCombo, AUTO)
 
 

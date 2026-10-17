@@ -1,6 +1,9 @@
 bridge.Text.text                    max_size:1024
 bridge.KeyCombo.keys                max_size:6
 bridge.KeyboardReport.keys          max_size:6
+bridge.Strokes.strokes              max_size:1020
+bridge.Hello.firmware_version       max_size:32
+bridge.Hello.capabilities           max_count:12 max_size:16
 bridge.Config.layout                max_size:16
 bridge.Config.available_layouts     max_count:8 max_size:16
 bridge.Status.layout                max_size:16
