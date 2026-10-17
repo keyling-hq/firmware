@@ -30,6 +30,12 @@ typedef struct {
     void (*passkey)(uint32_t passkey, bool show, void *ctx);
     /** Data written to the NUS RX characteristic by the bonded phone. */
     void (*rx)(const uint8_t *data, size_t len, void *ctx);
+    /** Bridge session: the bonded phone is connected and subscribed to EVT. */
+    void (*bridge_session)(bool active, void *ctx);
+    /** Bytes written to the bridge CMD characteristic. Must not block. */
+    void (*bridge_rx)(const uint8_t *data, size_t len, void *ctx);
+    /** Any write to the bridge CTRL characteristic. Must not block. */
+    void (*bridge_abort)(void *ctx);
 } ble_link_callbacks_t;
 
 esp_err_t ble_link_start(const char *device_name, const ble_link_callbacks_t *callbacks, void *ctx);
@@ -48,6 +54,12 @@ void ble_link_disconnect(void);
 
 /** Notify on the NUS TX characteristic. Fails unless the bonded phone is connected and subscribed. */
 esp_err_t ble_link_notify(const void *data, size_t len);
+
+/**
+ * Send bytes on the bridge EVT stream, split into MTU-sized notifications. Blocks while the
+ * stack is out of buffers, so never call it from a NimBLE callback.
+ */
+esp_err_t ble_link_bridge_send(const uint8_t *data, size_t len);
 
 #ifdef __cplusplus
 }

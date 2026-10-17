@@ -1,0 +1,111 @@
+// Phone <-> dongle protocol.
+//
+// Transport: the "bridge" GATT service. The phone writes to CMD, the dongle notifies on EVT.
+// Both directions are byte streams of frames: [length: u16 little endian][protobuf payload].
+// A frame may span several writes/notifications and one write may hold several frames.
+//
+// Flow control: the phone may only write as many CMD bytes (length prefix included) as the
+// dongle has granted through Credits events. Credits with reset=true replace the phone's
+// balance instead of adding to it; the dongle sends one when a session starts and after an abort.
+//
+// Abort: writing any byte to the CTRL characteristic stops typing and discards every CMD byte
+// the dongle has not processed yet. The phone's balance is zero until the following reset;
+// credit increments that arrive in between were sent before the abort and must be ignored.
+// Requests waiting for an Ack when the phone aborts may never get one.
+
+syntax = "proto3";
+
+package bridge;
+
+message Request {
+    // Echoed in the Ack for this request. 0 means no Ack is wanted.
+    uint32 id = 1;
+
+    oneof msg {
+        Text text = 10;
+        KeyCombo key_combo = 11;
+        Consumer consumer = 12;
+        KeyboardReport keyboard_report = 13;
+        GetConfig get_config = 14;
+        SetConfig set_config = 15;
+        Ping ping = 16;
+    }
+}
+
+// Typed with the dongle's current layout. May be split anywhere, even inside a UTF-8 sequence.
+message Text {
+    string text = 1;
+}
+
+// Pressed together, then released.
+message KeyCombo {
+    uint32 modifiers = 1;   // HID modifier bits
+    bytes keys = 2;         // up to 6 HID keyboard usages
+}
+
+// Pressed, then released.
+message Consumer {
+    uint32 usage = 1;       // HID consumer page usage
+}
+
+// Sent as is. The phone is responsible for releasing keys with a later empty report.
+message KeyboardReport {
+    uint32 modifiers = 1;
+    bytes keys = 2;
+}
+
+message GetConfig {}
+
+// Only the fields present are changed. Replied to with a Config event.
+message SetConfig {
+    Config config = 1;
+}
+
+message Ping {}
+
+message Config {
+    optional string layout = 1;
+    optional uint32 key_press_ms = 2;
+    optional uint32 key_release_ms = 3;
+    repeated string available_layouts = 4;  // read only
+}
+
+message Event {
+    oneof msg {
+        Hello hello = 1;
+        Credits credits = 2;
+        Ack ack = 3;
+        Status status = 4;
+        Config config = 5;
+    }
+}
+
+// First event of every session.
+message Hello {
+    uint32 protocol_version = 1;
+    uint32 max_frame = 2;   // largest CMD frame payload the dongle accepts
+}
+
+message Credits {
+    uint32 bytes = 1;
+    bool reset = 2;
+}
+
+enum Result {
+    RESULT_OK = 0;
+    RESULT_INVALID = 1;     // malformed or unsupported request
+    RESULT_FAILED = 2;      // valid request that could not be carried out
+    RESULT_ABORTED = 3;
+}
+
+// Sent once the request has been handled. For input requests that means queued for typing.
+message Ack {
+    uint32 id = 1;
+    Result result = 2;
+}
+
+message Status {
+    bool typing = 1;
+    bool usb_mounted = 2;
+    string layout = 3;
+}

@@ -4,3 +4,5 @@ managed_components/
 sdkconfig.*
 !sdkconfig.defaults
 !sdkconfig.*.defaults
+tools/.venv/
+__pycache__/

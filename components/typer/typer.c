@@ -9,16 +9,18 @@
 static const char *TAG = "typer";
 
 #define QUEUE_BYTES         4096
-#define TEXT_CHUNK          256
 #define CAPS_LOCK_LED       0x02
 
 typedef enum {
     ITEM_TEXT,
     ITEM_COMBO,
     ITEM_CONSUMER,
+    ITEM_REPORT,
+    ITEM_RELEASE,
 } item_type_t;
 
 typedef struct {
+    uint32_t generation;
     uint8_t type;
     uint8_t modifiers;
     uint16_t usage;
@@ -31,12 +33,20 @@ static void *s_cb_ctx;
 static const keymap_layout_t *volatile s_layout;
 static volatile uint8_t s_press_ms = 5;
 static volatile uint8_t s_release_ms = 5;
-static volatile bool s_abort;
+
+/* Bumped by typer_abort(): items queued under an older generation are dropped. */
+static volatile uint32_t s_generation;
+static uint32_t s_item_generation;
 
 static struct {
     uint32_t codepoint;
     int remaining;
 } s_utf8;
+
+static bool aborted(void)
+{
+    return s_item_generation != s_generation;
+}
 
 static void emit(typer_event_t event)
 {
@@ -76,7 +86,7 @@ static esp_err_t type_codepoint(uint32_t codepoint, size_t *unmapped)
         }
         return ESP_OK;
     }
-    for (size_t i = 0; i < count && !s_abort; i++) {
+    for (size_t i = 0; i < count && !aborted(); i++) {
         uint8_t keys[USB_HID_KEYBOARD_KEYS] = { strokes[i].keycode };
         ESP_RETURN_ON_ERROR(tap(strokes[i].modifiers, keys), TAG, "tap");
     }
@@ -86,7 +96,7 @@ static esp_err_t type_codepoint(uint32_t codepoint, size_t *unmapped)
 static esp_err_t type_text(const uint8_t *text, size_t len)
 {
     size_t unmapped = 0;
-    for (size_t i = 0; i < len && !s_abort; i++) {
+    for (size_t i = 0; i < len && !aborted(); i++) {
         uint8_t c = text[i];
         if (s_utf8.remaining && (c & 0xC0) == 0x80) {
             s_utf8.codepoint = (s_utf8.codepoint << 6) | (c & 0x3F);
@@ -130,19 +140,11 @@ static esp_err_t process(const item_header_t *hdr, const uint8_t *payload, size_
         ESP_RETURN_ON_ERROR(usb_hid_consumer_report(hdr->usage), TAG, "consumer press");
         delay_ms(s_press_ms);
         return usb_hid_consumer_report(0);
+    case ITEM_REPORT:
+        return usb_hid_keyboard_report(hdr->modifiers, hdr->keys);
     default:
         return ESP_OK;
     }
-}
-
-static void drain(void)
-{
-    size_t size;
-    void *item;
-    while ((item = xRingbufferReceive(s_queue, &size, 0)) != NULL) {
-        vRingbufferReturnItem(s_queue, item);
-    }
-    s_utf8.remaining = 0;
 }
 
 static bool queue_empty(void)
@@ -150,6 +152,12 @@ static bool queue_empty(void)
     UBaseType_t waiting = 0;
     vRingbufferGetInfo(s_queue, NULL, NULL, NULL, NULL, &waiting);
     return waiting == 0;
+}
+
+static void release_all(void)
+{
+    usb_hid_keyboard_report(0, NULL);
+    usb_hid_consumer_report(0);
 }
 
 static void typer_task(void *arg)
@@ -161,27 +169,33 @@ static void typer_task(void *arg)
         if (!item) {
             continue;
         }
-        if (!busy) {
-            busy = true;
-            emit(TYPER_EVENT_BUSY);
+        if (item->generation != s_item_generation) {
+            s_item_generation = item->generation;
+            s_utf8.remaining = 0;
         }
 
         esp_err_t err = ESP_OK;
-        if (!s_abort) {
+        if (item->type == ITEM_RELEASE) {
+            release_all();
+        } else if (!aborted()) {
+            if (!busy) {
+                busy = true;
+                emit(TYPER_EVENT_BUSY);
+            }
             err = process(item, (const uint8_t *)(item + 1), size - sizeof(*item));
         }
         vRingbufferReturnItem(s_queue, item);
 
-        if (err != ESP_OK || s_abort) {
-            drain();
-            usb_hid_keyboard_report(0, NULL);
-            usb_hid_consumer_report(0);
-            s_abort = false;
+        if (err != ESP_OK) {
+            /* Drop the rest of this generation: it would type with a gap in the middle. */
+            typer_abort();
+        }
+        if (aborted()) {
+            release_all();
+        }
+        if (busy && (err != ESP_OK || queue_empty())) {
             busy = false;
             emit(err != ESP_OK ? TYPER_EVENT_ERROR : TYPER_EVENT_IDLE);
-        } else if (queue_empty()) {
-            busy = false;
-            emit(TYPER_EVENT_IDLE);
         }
     }
 }
@@ -207,8 +221,9 @@ void typer_set_timing(uint8_t key_press_ms, uint8_t key_release_ms)
     s_release_ms = key_release_ms;
 }
 
-static esp_err_t enqueue(const item_header_t *hdr, const void *payload, size_t len, TickType_t wait)
+static esp_err_t enqueue(item_header_t *hdr, const void *payload, size_t len, TickType_t wait)
 {
+    hdr->generation = s_generation;
     void *slot = NULL;
     if (xRingbufferSendAcquire(s_queue, &slot, sizeof(*hdr) + len, wait) != pdTRUE) {
         return ESP_ERR_TIMEOUT;
@@ -223,9 +238,9 @@ static esp_err_t enqueue(const item_header_t *hdr, const void *payload, size_t l
 
 esp_err_t typer_text(const char *utf8, size_t len, TickType_t wait)
 {
-    const item_header_t hdr = { .type = ITEM_TEXT };
+    item_header_t hdr = { .type = ITEM_TEXT };
     while (len) {
-        size_t chunk = len < TEXT_CHUNK ? len : TEXT_CHUNK;
+        size_t chunk = len < TYPER_TEXT_CHUNK ? len : TYPER_TEXT_CHUNK;
         ESP_RETURN_ON_ERROR(enqueue(&hdr, utf8, chunk, wait), TAG, "text");
         utf8 += chunk;
         len -= chunk;
@@ -233,9 +248,10 @@ esp_err_t typer_text(const char *utf8, size_t len, TickType_t wait)
     return ESP_OK;
 }
 
-esp_err_t typer_combo(uint8_t modifiers, const uint8_t *keys, size_t key_count, TickType_t wait)
+static esp_err_t enqueue_keys(item_type_t type, uint8_t modifiers, const uint8_t *keys, size_t key_count,
+                              TickType_t wait)
 {
-    item_header_t hdr = { .type = ITEM_COMBO, .modifiers = modifiers };
+    item_header_t hdr = { .type = type, .modifiers = modifiers };
     ESP_RETURN_ON_FALSE(key_count <= USB_HID_KEYBOARD_KEYS, ESP_ERR_INVALID_ARG, TAG, "too many keys");
     if (key_count) {
         memcpy(hdr.keys, keys, key_count);
@@ -243,15 +259,30 @@ esp_err_t typer_combo(uint8_t modifiers, const uint8_t *keys, size_t key_count, 
     return enqueue(&hdr, NULL, 0, wait);
 }
 
+esp_err_t typer_combo(uint8_t modifiers, const uint8_t *keys, size_t key_count, TickType_t wait)
+{
+    return enqueue_keys(ITEM_COMBO, modifiers, keys, key_count, wait);
+}
+
+esp_err_t typer_keyboard_report(uint8_t modifiers, const uint8_t *keys, size_t key_count, TickType_t wait)
+{
+    return enqueue_keys(ITEM_REPORT, modifiers, keys, key_count, wait);
+}
+
 esp_err_t typer_consumer(uint16_t usage, TickType_t wait)
 {
-    const item_header_t hdr = { .type = ITEM_CONSUMER, .usage = usage };
+    item_header_t hdr = { .type = ITEM_CONSUMER, .usage = usage };
     return enqueue(&hdr, NULL, 0, wait);
 }
 
 void typer_abort(void)
 {
-    s_abort = true;
+    s_generation++;
+    if (s_queue) {
+        /* Wake the task so keys are released even if nothing else is queued. */
+        item_header_t hdr = { .type = ITEM_RELEASE };
+        enqueue(&hdr, NULL, 0, 0);
+    }
 }
 
 size_t typer_free_bytes(void)

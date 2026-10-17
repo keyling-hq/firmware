@@ -1,0 +1,8 @@
+bridge.Text.text                    max_size:1024
+bridge.KeyCombo.keys                max_size:6
+bridge.KeyboardReport.keys          max_size:6
+bridge.Config.layout                max_size:16
+bridge.Config.available_layouts     max_count:8 max_size:16
+bridge.Status.layout                max_size:16
+bridge.Request.msg                  anonymous_oneof:true
+bridge.Event.msg                    anonymous_oneof:true

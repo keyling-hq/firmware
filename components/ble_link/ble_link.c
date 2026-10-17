@@ -1,5 +1,7 @@
 #include <string.h>
 #include "ble_link.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "esp_check.h"
 #include "esp_log.h"
 #include "esp_random.h"
@@ -26,6 +28,24 @@ static const ble_uuid128_t NUS_RX_UUID =
     BLE_UUID128_INIT(0x9e, 0xca, 0xdc, 0x24, 0x0e, 0xe5, 0xa9, 0xe0, 0x93, 0xf3, 0xa3, 0xb5, 0x02, 0x00, 0x40, 0x6e);
 static const ble_uuid128_t NUS_TX_UUID =
     BLE_UUID128_INIT(0x9e, 0xca, 0xdc, 0x24, 0x0e, 0xe5, 0xa9, 0xe0, 0x93, 0xf3, 0xa3, 0xb5, 0x03, 0x00, 0x40, 0x6e);
+
+/* Bridge service: 7a1f0001-3c4e-4d8a-9b2e-5f6a7b8c9d0e, characteristics 0002 CMD, 0003 EVT, 0004 CTRL. */
+#define BRIDGE_UUID(n) \
+    BLE_UUID128_INIT(0x0e, 0x9d, 0x8c, 0x7b, 0x6a, 0x5f, 0x2e, 0x9b, 0x8a, 0x4d, 0x4e, 0x3c, (n), 0x00, 0x1f, 0x7a)
+
+static const ble_uuid128_t BRIDGE_SVC_UUID = BRIDGE_UUID(0x01);
+static const ble_uuid128_t BRIDGE_CMD_UUID = BRIDGE_UUID(0x02);
+static const ble_uuid128_t BRIDGE_EVT_UUID = BRIDGE_UUID(0x03);
+static const ble_uuid128_t BRIDGE_CTRL_UUID = BRIDGE_UUID(0x04);
+
+#define NOTIFY_RETRY_MS     5
+#define NOTIFY_RETRIES      200
+
+static uint16_t s_cmd_handle;
+static uint16_t s_evt_handle;
+static uint16_t s_ctrl_handle;
+static volatile bool s_evt_subscribed;
+static bool s_bridge_session;
 
 static ble_link_callbacks_t s_cb;
 static void *s_cb_ctx;
@@ -90,7 +110,73 @@ static int nus_access_cb(uint16_t conn, uint16_t attr, struct ble_gatt_access_ct
     return 0;
 }
 
+static void update_bridge_session(void)
+{
+    bool active = s_state == BLE_LINK_CONNECTED && s_evt_subscribed;
+    if (active != s_bridge_session) {
+        s_bridge_session = active;
+        ESP_LOGI(TAG, "bridge session %s", active ? "started" : "ended");
+        if (s_cb.bridge_session) {
+            s_cb.bridge_session(active, s_cb_ctx);
+        }
+    }
+}
+
+static int bridge_access_cb(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+    if (s_state != BLE_LINK_CONNECTED) {
+        return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    }
+    if (attr == s_ctrl_handle) {
+        if (s_cb.bridge_abort) {
+            s_cb.bridge_abort(s_cb_ctx);
+        }
+        return 0;
+    }
+    uint16_t len = 0;
+    if (ble_hs_mbuf_to_flat(ctxt->om, s_rx_buf, sizeof(s_rx_buf), &len) != 0) {
+        ESP_LOGW(TAG, "CMD write of %u bytes rejected, max %u", (unsigned)OS_MBUF_PKTLEN(ctxt->om),
+                 (unsigned)sizeof(s_rx_buf));
+        return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    }
+    if (s_cb.bridge_rx) {
+        s_cb.bridge_rx(s_rx_buf, len, s_cb_ctx);
+    }
+    return 0;
+}
+
+#define SECURE_WRITE (BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP | \
+                      BLE_GATT_CHR_F_WRITE_ENC | BLE_GATT_CHR_F_WRITE_AUTHEN)
+
 static const struct ble_gatt_svc_def s_services[] = {
+    {
+        .type = BLE_GATT_SVC_TYPE_PRIMARY,
+        .uuid = &BRIDGE_SVC_UUID.u,
+        .characteristics = (struct ble_gatt_chr_def[]) {
+            {
+                .uuid = &BRIDGE_CMD_UUID.u,
+                .access_cb = bridge_access_cb,
+                .val_handle = &s_cmd_handle,
+                .flags = SECURE_WRITE,
+            },
+            {
+                .uuid = &BRIDGE_EVT_UUID.u,
+                .access_cb = bridge_access_cb,
+                .val_handle = &s_evt_handle,
+                .flags = BLE_GATT_CHR_F_NOTIFY,
+            },
+            {
+                .uuid = &BRIDGE_CTRL_UUID.u,
+                .access_cb = bridge_access_cb,
+                .val_handle = &s_ctrl_handle,
+                .flags = SECURE_WRITE,
+            },
+            { 0 },
+        },
+    },
     {
         .type = BLE_GATT_SVC_TYPE_PRIMARY,
         .uuid = &NUS_SVC_UUID.u,
@@ -98,8 +184,7 @@ static const struct ble_gatt_svc_def s_services[] = {
             {
                 .uuid = &NUS_RX_UUID.u,
                 .access_cb = nus_access_cb,
-                .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP |
-                         BLE_GATT_CHR_F_WRITE_ENC | BLE_GATT_CHR_F_WRITE_AUTHEN,
+                .flags = SECURE_WRITE,
             },
             {
                 .uuid = &NUS_TX_UUID.u,
@@ -168,6 +253,7 @@ static void on_secured(uint16_t conn)
     }
     s_state = BLE_LINK_CONNECTED;
     report();
+    update_bridge_session();
 }
 
 static int gap_event_cb(struct ble_gap_event *event, void *arg)
@@ -189,8 +275,10 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
         ESP_LOGI(TAG, "disconnected, reason 0x%x", event->disconnect.reason);
         s_conn = BLE_HS_CONN_HANDLE_NONE;
         s_subscribed = false;
+        s_evt_subscribed = false;
         hide_passkey();
         s_state = BLE_LINK_ADVERTISING;
+        update_bridge_session();
         advertise();
         report();
         return 0;
@@ -242,6 +330,9 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
     case BLE_GAP_EVENT_SUBSCRIBE:
         if (event->subscribe.attr_handle == s_tx_handle) {
             s_subscribed = event->subscribe.cur_notify;
+        } else if (event->subscribe.attr_handle == s_evt_handle) {
+            s_evt_subscribed = event->subscribe.cur_notify;
+            update_bridge_session();
         }
         return 0;
 
@@ -393,4 +484,37 @@ esp_err_t ble_link_notify(const void *data, size_t len)
     struct os_mbuf *om = ble_hs_mbuf_from_flat(data, len);
     ESP_RETURN_ON_FALSE(om, ESP_ERR_NO_MEM, TAG, "mbuf");
     return ble_gatts_notify_custom(s_conn, s_tx_handle, om) == 0 ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t ble_link_bridge_send(const uint8_t *data, size_t len)
+{
+    while (len) {
+        uint16_t conn = s_conn;
+        if (!s_bridge_session || conn == BLE_HS_CONN_HANDLE_NONE) {
+            return ESP_ERR_INVALID_STATE;
+        }
+        size_t chunk = ble_att_mtu(conn) - 3;
+        if (chunk > BLE_ATT_ATTR_MAX_LEN) {
+            chunk = BLE_ATT_ATTR_MAX_LEN;
+        }
+        if (chunk > len) {
+            chunk = len;
+        }
+
+        int rc = BLE_HS_ENOMEM;
+        for (int attempt = 0; attempt < NOTIFY_RETRIES && rc == BLE_HS_ENOMEM; attempt++) {
+            struct os_mbuf *om = ble_hs_mbuf_from_flat(data, chunk);
+            rc = om ? ble_gatts_notify_custom(conn, s_evt_handle, om) : BLE_HS_ENOMEM;
+            if (rc == BLE_HS_ENOMEM) {
+                vTaskDelay(pdMS_TO_TICKS(NOTIFY_RETRY_MS));
+            }
+        }
+        if (rc != 0) {
+            ESP_LOGW(TAG, "bridge notify failed: %d", rc);
+            return ESP_FAIL;
+        }
+        data += chunk;
+        len -= chunk;
+    }
+    return ESP_OK;
 }

@@ -5,6 +5,7 @@
 #include "esp_check.h"
 #include "esp_log.h"
 #include "keymap.h"
+#include "protocol.h"
 #include "settings.h"
 #include "status_led.h"
 #include "typer.h"
@@ -20,6 +21,10 @@ static const char TYPE_TEST_TEXT[] =
     "\xC3\xB1\xC3\x91 \xC3\xBC\xC3\x9C \xC2\xBF\xC2\xA1 \xC2\xB0\xC2\xAC\n";
 
 static volatile ble_link_state_t s_ble_state = BLE_LINK_ADVERTISING;
+#define MAX_KEY_DELAY_MS    100
+
+static volatile bool s_typing;
+static volatile bool s_usb_mounted;
 static status_led_pattern_t s_led = STATUS_LED_OFF;
 
 static const keymap_layout_t *layout_for(const char *id)
@@ -45,6 +50,7 @@ static void update_settings(void (*change)(settings_t *, int), int arg)
         ESP_LOGE(TAG, "failed to save settings");
     }
     apply_settings();
+    protocol_status_changed();
 }
 
 static void set_layout(settings_t *settings, int index)
@@ -78,7 +84,7 @@ static void ui_action_cb(ui_action_t action, int arg)
         update_settings(set_speed, arg);
         break;
     case UI_ACTION_ABORT_TYPING:
-        typer_abort();
+        protocol_abort();
         break;
     case UI_ACTION_PAIR_NEW:
         /* Only one connection at a time: the current phone has to make room for the new one. */
@@ -104,16 +110,16 @@ static void notify_phone(const char *msg)
 
 static void typer_event_cb(typer_event_t event, void *ctx)
 {
+    s_typing = event == TYPER_EVENT_BUSY;
+    ui_show_typing(s_typing);
+    protocol_status_changed();
     switch (event) {
     case TYPER_EVENT_BUSY:
-        ui_show_typing(true);
         break;
     case TYPER_EVENT_IDLE:
-        ui_show_typing(false);
         notify_phone("done\n");
         break;
     case TYPER_EVENT_ERROR:
-        ui_show_typing(false);
         status_led_set(STATUS_LED_ERROR);
         notify_phone("error\n");
         break;
@@ -123,11 +129,79 @@ static void typer_event_cb(typer_event_t event, void *ctx)
 static void usb_mount_cb(bool mounted, void *ctx)
 {
     ESP_LOGI(TAG, "usb %s", mounted ? "mounted" : "unmounted");
+    s_usb_mounted = mounted;
     ui_set_usb_state(mounted);
     if (!mounted) {
-        typer_abort();
+        protocol_abort();
+    }
+    protocol_status_changed();
+}
+
+/* ---- protocol handlers --------------------------------------------------- */
+
+static esp_err_t proto_send(const uint8_t *data, size_t len, void *ctx)
+{
+    return ble_link_bridge_send(data, len);
+}
+
+static void proto_get_config(bridge_Config *out, void *ctx)
+{
+    settings_t settings;
+    settings_get(&settings);
+    out->has_layout = true;
+    strlcpy(out->layout, settings.layout, sizeof(out->layout));
+    out->has_key_press_ms = true;
+    out->key_press_ms = settings.key_press_ms;
+    out->has_key_release_ms = true;
+    out->key_release_ms = settings.key_release_ms;
+
+    size_t max = sizeof(out->available_layouts) / sizeof(out->available_layouts[0]);
+    for (size_t i = 0; i < keymap_layout_count() && i < max; i++) {
+        strlcpy(out->available_layouts[i], keymap_layout_get(i)->id, sizeof(out->available_layouts[i]));
+        out->available_layouts_count = i + 1;
     }
 }
+
+static bridge_Result proto_set_config(const bridge_Config *in, void *ctx)
+{
+    settings_t settings;
+    settings_get(&settings);
+    if (in->has_layout) {
+        if (!keymap_layout_find(in->layout)) {
+            return bridge_Result_RESULT_INVALID;
+        }
+        strlcpy(settings.layout, in->layout, sizeof(settings.layout));
+    }
+    if (in->has_key_press_ms) {
+        if (in->key_press_ms > MAX_KEY_DELAY_MS) {
+            return bridge_Result_RESULT_INVALID;
+        }
+        settings.key_press_ms = in->key_press_ms;
+    }
+    if (in->has_key_release_ms) {
+        if (in->key_release_ms > MAX_KEY_DELAY_MS) {
+            return bridge_Result_RESULT_INVALID;
+        }
+        settings.key_release_ms = in->key_release_ms;
+    }
+    if (settings_set(&settings) != ESP_OK) {
+        return bridge_Result_RESULT_FAILED;
+    }
+    apply_settings();
+    protocol_status_changed();
+    return bridge_Result_RESULT_OK;
+}
+
+static void proto_get_status(bridge_Status *out, void *ctx)
+{
+    settings_t settings;
+    settings_get(&settings);
+    out->typing = s_typing;
+    out->usb_mounted = s_usb_mounted;
+    strlcpy(out->layout, settings.layout, sizeof(out->layout));
+}
+
+/* ---- BLE ----------------------------------------------------------------- */
 
 static ui_ble_state_t ui_ble_state_for(const ble_link_status_t *status)
 {
@@ -180,6 +254,21 @@ static void ble_rx_cb(const uint8_t *data, size_t len, void *ctx)
     }
 }
 
+static void ble_bridge_session_cb(bool active, void *ctx)
+{
+    protocol_session(active);
+}
+
+static void ble_bridge_rx_cb(const uint8_t *data, size_t len, void *ctx)
+{
+    protocol_rx(data, len);
+}
+
+static void ble_bridge_abort_cb(void *ctx)
+{
+    protocol_abort();
+}
+
 esp_err_t app_start(void)
 {
     ESP_RETURN_ON_ERROR(settings_init(), TAG, "settings");
@@ -195,12 +284,23 @@ esp_err_t app_start(void)
     apply_settings();
     ESP_RETURN_ON_ERROR(usb_hid_start(usb_mount_cb, NULL), TAG, "usb");
 
+    static const protocol_handlers_t protocol_handlers = {
+        .send = proto_send,
+        .get_config = proto_get_config,
+        .set_config = proto_set_config,
+        .get_status = proto_get_status,
+    };
+    ESP_RETURN_ON_ERROR(protocol_start(&protocol_handlers, NULL), TAG, "protocol");
+
     settings_t settings;
     settings_get(&settings);
     static const ble_link_callbacks_t ble_callbacks = {
         .status = ble_status_cb,
         .passkey = ble_passkey_cb,
         .rx = ble_rx_cb,
+        .bridge_session = ble_bridge_session_cb,
+        .bridge_rx = ble_bridge_rx_cb,
+        .bridge_abort = ble_bridge_abort_cb,
     };
     ESP_RETURN_ON_ERROR(ble_link_start(settings.ble_name, &ble_callbacks, NULL), TAG, "ble");
     return ESP_OK;
