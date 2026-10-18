@@ -18,6 +18,7 @@ typedef enum {
     OVERLAY_NONE,
     OVERLAY_PAIRING,
     OVERLAY_TYPING,
+    OVERLAY_FIDO,
     OVERLAY_PASSKEY,
     OVERLAY_UPDATE,
 } overlay_t;
@@ -39,6 +40,7 @@ static uint32_t s_screen_off_tick;
 static bool s_usb_mounted;
 static ui_ble_state_t s_ble_state = UI_BLE_ADVERTISING;
 static bool s_typing;
+static bool s_fido_waiting;
 static bool s_pairing;
 static bool s_passkey_shown;
 static uint32_t s_passkey;
@@ -449,6 +451,15 @@ static lv_obj_t *overlay_begin(const char *title, const char *button, ui_action_
 }
 
 /* Shows no counts or text: either would leak password length or content. */
+static void show_fido(void)
+{
+    lv_obj_t *list = overlay_begin("Security key", "Hold to confirm", UI_ACTION_FIDO_CONFIRM);
+    lv_obj_t *info = lv_label_create(list);
+    lv_label_set_text(info, "Sign-in request");
+    lv_obj_move_to_index(info, 0);
+    ui_menu_end(list, NULL);
+}
+
 static void show_typing(void)
 {
     ui_menu_end(overlay_begin("Typing...", "Hold to abort", UI_ACTION_ABORT_TYPING), NULL);
@@ -499,6 +510,7 @@ static void update_overlay(void)
 {
     overlay_t want = s_updating      ? OVERLAY_UPDATE
                      : s_passkey_shown ? OVERLAY_PASSKEY
+                     : s_fido_waiting ? OVERLAY_FIDO
                      : s_typing      ? OVERLAY_TYPING
                      : s_pairing     ? OVERLAY_PAIRING
                      : OVERLAY_NONE;
@@ -518,6 +530,7 @@ static void update_overlay(void)
         [OVERLAY_NONE] = show_home,
         [OVERLAY_PAIRING] = show_pairing,
         [OVERLAY_TYPING] = show_typing,
+        [OVERLAY_FIDO] = show_fido,
         [OVERLAY_PASSKEY] = show_passkey,
         [OVERLAY_UPDATE] = show_update,
     };
@@ -543,6 +556,16 @@ void ui_set_ble_state(ui_ble_state_t state)
     }
     s_ble_state = state;
     update_status();
+    lvgl_port_unlock();
+}
+
+void ui_show_fido_presence(bool waiting)
+{
+    if (!lvgl_port_lock(0)) {
+        return;
+    }
+    s_fido_waiting = waiting;
+    update_overlay();
     lvgl_port_unlock();
 }
 

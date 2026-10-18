@@ -2,6 +2,7 @@
 #include "app.h"
 #include "ble_link.h"
 #include "bsp/tdongle.h"
+#include "canokey_port.h"
 #include "datafs.h"
 #include "esp_attr.h"
 #include "esp_check.h"
@@ -127,6 +128,9 @@ static void ui_action_cb(ui_action_t action, int arg)
         break;
     case UI_ACTION_FACTORY_RESET:
         app_factory_reset_request();
+        break;
+    case UI_ACTION_FIDO_CONFIRM:
+        canokey_confirm_presence();
         break;
     }
 }
@@ -302,6 +306,12 @@ static void ble_bridge_abort_cb(void *ctx)
     protocol_abort();
 }
 
+static void fido_presence_cb(bool waiting, void *ctx)
+{
+    ESP_LOGI(TAG, "fido: %s user presence", waiting ? "waiting for" : "done with");
+    ui_show_fido_presence(waiting);
+}
+
 esp_err_t app_start(void)
 {
     ESP_RETURN_ON_ERROR(keystore_init(), TAG, "keystore");
@@ -318,6 +328,7 @@ esp_err_t app_start(void)
     ESP_RETURN_ON_ERROR(typer_start(typer_event_cb, NULL), TAG, "typer");
     apply_settings();
     ESP_RETURN_ON_ERROR(usb_hid_start(usb_mount_cb, NULL), TAG, "usb");
+    ESP_RETURN_ON_ERROR(canokey_start(fido_presence_cb, NULL), TAG, "fido");
 
     static const protocol_handlers_t protocol_handlers = {
         .send = proto_send,

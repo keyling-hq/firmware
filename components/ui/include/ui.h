@@ -18,6 +18,7 @@ typedef enum {
     UI_ACTION_CANCEL_PAIRING,
     UI_ACTION_FORGET_PHONE,
     UI_ACTION_FACTORY_RESET,
+    UI_ACTION_FIDO_CONFIRM,
 } ui_action_t;
 
 typedef enum {
@@ -36,10 +37,11 @@ esp_err_t ui_start(button_handle_t btn, ui_action_cb_t action_cb);
 
 /*
  * Thread safe, callable from any task once ui_start() has returned. The show functions wake
- * the screen; the highest priority active one is displayed: firmware update, passkey, typing,
- * pairing window.
+ * the screen; the highest priority active one is displayed: firmware update, passkey, security key
+ * confirmation, typing, pairing window.
  */
 void ui_show_update(bool active, uint8_t percent);
+void ui_show_fido_presence(bool waiting);
 void ui_set_usb_state(bool mounted);
 void ui_set_ble_state(ui_ble_state_t state);
 void ui_show_typing(bool typing);

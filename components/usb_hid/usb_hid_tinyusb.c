@@ -22,17 +22,28 @@ static const char *TAG = "usb_hid";
 #define HID_READY_TIMEOUT_MS    100
 #define DOWNLOAD_TOUCH_BAUD     1200
 
+#define FIDO_POLL_MS            5
+
 enum {
     ITF_NUM_CDC = 0,
     ITF_NUM_CDC_DATA,
     ITF_NUM_HID,
+    ITF_NUM_FIDO,
     ITF_NUM_TOTAL,
+};
+
+/* TinyUSB numbers HID instances in descriptor order. */
+enum {
+    HID_INSTANCE_KEYBOARD = 0,
+    HID_INSTANCE_FIDO,
 };
 
 #define EPNUM_CDC_NOTIF 0x81
 #define EPNUM_CDC_OUT   0x02
 #define EPNUM_CDC_IN    0x82
 #define EPNUM_HID       0x83
+#define EPNUM_FIDO_OUT  0x04
+#define EPNUM_FIDO_IN   0x84
 
 enum {
     STRID_LANGID = 0,
@@ -41,6 +52,7 @@ enum {
     STRID_SERIAL,
     STRID_CDC,
     STRID_HID,
+    STRID_FIDO,
     STRID_COUNT,
 };
 
@@ -56,12 +68,18 @@ static const uint8_t s_hid_report_desc[] = {
     TUD_HID_REPORT_DESC_CONSUMER(HID_REPORT_ID(REPORT_ID_CONSUMER)),
 };
 
-#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_CDC_DESC_LEN + TUD_HID_DESC_LEN)
+static const uint8_t s_fido_report_desc[] = {
+    TUD_HID_REPORT_DESC_FIDO_U2F(USB_HID_FIDO_REPORT_SIZE),
+};
+
+#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_CDC_DESC_LEN + TUD_HID_DESC_LEN + TUD_HID_INOUT_DESC_LEN)
 
 static const uint8_t s_config_desc[] = {
     TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
     TUD_CDC_DESCRIPTOR(ITF_NUM_CDC, STRID_CDC, EPNUM_CDC_NOTIF, 8, EPNUM_CDC_OUT, EPNUM_CDC_IN, 64),
     TUD_HID_DESCRIPTOR(ITF_NUM_HID, STRID_HID, HID_ITF_PROTOCOL_NONE, sizeof(s_hid_report_desc), EPNUM_HID, HID_EP_SIZE, 1),
+    TUD_HID_INOUT_DESCRIPTOR(ITF_NUM_FIDO, STRID_FIDO, HID_ITF_PROTOCOL_NONE, sizeof(s_fido_report_desc),
+                             EPNUM_FIDO_OUT, EPNUM_FIDO_IN, USB_HID_FIDO_REPORT_SIZE, FIDO_POLL_MS),
 };
 
 /* IAD class codes are required for a composite device that contains CDC. */
@@ -91,12 +109,15 @@ static const char *s_strings[STRID_COUNT] = {
     [STRID_SERIAL] = s_serial,
     [STRID_CDC] = "Console",
     [STRID_HID] = "Keyboard",
+    [STRID_FIDO] = "Security key",
 };
 
 static SemaphoreHandle_t s_lock;
 static volatile uint8_t s_leds;
 static usb_hid_mount_cb_t s_mount_cb;
 static void *s_mount_ctx;
+static usb_hid_fido_rx_cb_t s_fido_rx_cb;
+static void *s_fido_rx_ctx;
 
 static void usb_event_cb(tinyusb_event_t *event, void *arg)
 {
@@ -111,7 +132,7 @@ static void usb_event_cb(tinyusb_event_t *event, void *arg)
 
 uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance)
 {
-    return s_hid_report_desc;
+    return instance == HID_INSTANCE_FIDO ? s_fido_report_desc : s_hid_report_desc;
 }
 
 uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t report_type,
@@ -123,6 +144,12 @@ uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id, hid_report_t
 void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t report_type,
                            uint8_t const *buffer, uint16_t bufsize)
 {
+    if (instance == HID_INSTANCE_FIDO) {
+        if (bufsize == USB_HID_FIDO_REPORT_SIZE && s_fido_rx_cb) {
+            s_fido_rx_cb(buffer, s_fido_rx_ctx);
+        }
+        return;
+    }
     if (report_id == REPORT_ID_KEYBOARD && report_type == HID_REPORT_TYPE_OUTPUT && bufsize >= 1) {
         s_leds = buffer[0];
     }
@@ -193,13 +220,32 @@ uint8_t usb_hid_keyboard_leds(void)
     return s_leds;
 }
 
+void usb_hid_fido_set_rx_cb(usb_hid_fido_rx_cb_t cb, void *ctx)
+{
+    s_fido_rx_ctx = ctx;
+    s_fido_rx_cb = cb;
+}
+
+bool usb_hid_fido_ready(void)
+{
+    return tud_mounted() && tud_hid_n_ready(HID_INSTANCE_FIDO);
+}
+
+esp_err_t usb_hid_fido_send(const uint8_t report[USB_HID_FIDO_REPORT_SIZE])
+{
+    if (!usb_hid_fido_ready()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    return tud_hid_n_report(HID_INSTANCE_FIDO, 0, report, USB_HID_FIDO_REPORT_SIZE) ? ESP_OK : ESP_FAIL;
+}
+
 static esp_err_t wait_ready(void)
 {
     for (int i = 0; i < HID_READY_TIMEOUT_MS; i++) {
         if (!tud_mounted()) {
             return ESP_ERR_INVALID_STATE;
         }
-        if (tud_hid_ready()) {
+        if (tud_hid_n_ready(HID_INSTANCE_KEYBOARD)) {
             return ESP_OK;
         }
         vTaskDelay(pdMS_TO_TICKS(1));
@@ -211,7 +257,7 @@ static esp_err_t send_report(uint8_t report_id, const void *report, uint16_t len
 {
     xSemaphoreTake(s_lock, portMAX_DELAY);
     esp_err_t ret = wait_ready();
-    if (ret == ESP_OK && !tud_hid_report(report_id, report, len)) {
+    if (ret == ESP_OK && !tud_hid_n_report(HID_INSTANCE_KEYBOARD, report_id, report, len)) {
         ret = ESP_FAIL;
     }
     xSemaphoreGive(s_lock);
