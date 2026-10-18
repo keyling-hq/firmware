@@ -448,9 +448,10 @@ async def shell(bridge):
 async def find_device(args):
     if args.address:
         return args.address
-    print(f"scanning for '{args.name}'...")
+    print(f"scanning for {repr(args.name) if args.name else 'a Keyling dongle'}...")
     device = await BleakScanner.find_device_by_filter(
-        lambda d, adv: d.name == args.name or BRIDGE_SVC in adv.service_uuids, timeout=10)
+        lambda d, adv: d.name == args.name if args.name else BRIDGE_SVC in adv.service_uuids,
+        timeout=10)
     if not device:
         raise SystemExit("dongle not found")
     return device
@@ -475,7 +476,7 @@ async def run(args):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--name", default="T-Dongle", help="advertised name to look for")
+    ap.add_argument("--name", help="advertised name to look for (default: any dongle with the bridge service)")
     ap.add_argument("--address", help="connect to this address instead of scanning")
     ap.add_argument("--pair", action="store_true", help="pair before running the command")
     ap.add_argument("-v", "--verbose", action="store_true", help="log credits and status events")

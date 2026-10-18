@@ -7,6 +7,7 @@
 #include "esp_check.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "fw_info.h"
 #include "ota_update.h"
 #include "pb_decode.h"
 #include "pb_encode.h"
@@ -114,8 +115,7 @@ static void send_hello(void)
     bridge_Event event = { .which_msg = bridge_Event_hello_tag };
     event.hello.protocol_version = PROTOCOL_VERSION;
     event.hello.max_frame = MAX_FRAME;
-    strlcpy(event.hello.firmware_version, esp_app_get_description()->version,
-            sizeof(event.hello.firmware_version));
+    strlcpy(event.hello.firmware_version, fw_info_version(), sizeof(event.hello.firmware_version));
     _Static_assert(sizeof(CAPABILITIES) / sizeof(CAPABILITIES[0]) <=
                    sizeof(event.hello.capabilities) / sizeof(event.hello.capabilities[0]), "capabilities");
     for (size_t i = 0; i < sizeof(CAPABILITIES) / sizeof(CAPABILITIES[0]); i++) {

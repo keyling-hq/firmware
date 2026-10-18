@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "ui_priv.h"
-#include "esp_app_desc.h"
+#include "fw_info.h"
 #include "keymap.h"
 #include "keystore.h"
 #include "settings.h"
@@ -93,7 +93,7 @@ static void show_about(void)
     lv_obj_t *list = ui_menu_begin("About", show_settings);
     lv_obj_t *info = lv_label_create(list);
     lv_label_set_text_fmt(info, "Keyling %s\n%s\nkeys %s, boot %s, enc %s",
-                          esp_app_get_description()->version,
+                          fw_info_version(),
                           keystore_is_secure() ? "Secure" : "INSECURE (dev)",
                           ks.root == KEYSTORE_ROOT_EFUSE ? "efuse" : "dev",
                           ks.secure_boot ? "on" : "off", ks.flash_encryption ? "on" : "off");

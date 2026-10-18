@@ -1,5 +1,7 @@
+#include <stdio.h>
 #include <string.h>
 #include "settings.h"
+#include "esp_mac.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "esp_check.h"
@@ -17,8 +19,17 @@ static const settings_t s_defaults = {
     .key_release_ms = 5,
     .brightness = 80,
     .screen_timeout_s = 15,
-    .ble_name = "T-Dongle",
 };
+
+#define LEGACY_DEFAULT_NAME "T-Dongle"
+
+/* "Keyling" + the last two bytes of the Bluetooth address, so nearby dongles can be told apart. */
+static void default_name(char *out, size_t len)
+{
+    uint8_t mac[6] = { 0 };
+    esp_read_mac(mac, ESP_MAC_BT);
+    snprintf(out, len, "Keyling%02X%02X", mac[4], mac[5]);
+}
 
 const settings_speed_preset_t settings_speed_presets[] = {
     { "Fast", 2, 2 },
@@ -36,6 +47,7 @@ esp_err_t settings_init(void)
     s_lock = xSemaphoreCreateMutex();
     ESP_RETURN_ON_FALSE(s_lock, ESP_ERR_NO_MEM, TAG, "mutex");
     s_settings = s_defaults;
+    default_name(s_settings.ble_name, sizeof(s_settings.ble_name));
 
     nvs_handle_t nvs;
     if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs) != ESP_OK) {
@@ -49,6 +61,9 @@ esp_err_t settings_init(void)
     if (err == ESP_OK && len == sizeof(stored)) {
         stored.layout[SETTINGS_LAYOUT_LEN - 1] = '\0';
         stored.ble_name[SETTINGS_BLE_NAME_LEN - 1] = '\0';
+        if (strcmp(stored.ble_name, LEGACY_DEFAULT_NAME) == 0) {
+            default_name(stored.ble_name, sizeof(stored.ble_name));
+        }
         s_settings = stored;
     } else {
         ESP_LOGW(TAG, "stored settings unreadable (%s), using defaults", esp_err_to_name(err));

@@ -17,6 +17,7 @@ static const char *TAG = "ble_link";
 
 #define ADV_ITVL_MIN    BLE_GAP_ADV_ITVL_MS(100)
 #define ADV_ITVL_MAX    BLE_GAP_ADV_ITVL_MS(150)
+#define ADV_NAME_MAX    11
 #define PASSKEY_MAX     1000000
 
 void ble_store_config_init(void);
@@ -231,6 +232,21 @@ static int store_status_cb(struct ble_store_status_event *event, void *arg)
     return deleted ? 0 : BLE_HS_ESTORE_CAP;
 }
 
+/*
+ * The EVT subscription is never kept across connections: with nothing stored, nothing is restored
+ * on reconnect, so the phone's enable write is always a change and always starts the session
+ * (NimBLE only reports subscription changes). peer NULL clears it for every peer.
+ */
+static void forget_evt_subscription(const ble_addr_t *peer)
+{
+    struct ble_store_key_cccd key = {
+        .peer_addr = peer ? *peer : *BLE_ADDR_ANY,
+        .chr_val_handle = s_evt_handle,
+    };
+    while (ble_store_delete_cccd(&key) == 0) {
+    }
+}
+
 static void on_secured(uint16_t conn)
 {
     struct ble_gap_conn_desc desc;
@@ -273,6 +289,7 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
 
     case BLE_GAP_EVENT_DISCONNECT:
         ESP_LOGI(TAG, "disconnected, reason 0x%x", event->disconnect.reason);
+        forget_evt_subscription(&event->disconnect.conn.peer_id_addr);
         s_conn = BLE_HS_CONN_HANDLE_NONE;
         s_subscribed = false;
         s_evt_subscribed = false;
@@ -293,14 +310,14 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
         } else {
             ESP_LOGW(TAG, "securing link failed, status %d", event->enc_change.status);
             hide_passkey();
-            ble_gap_terminate(event->enc_change.conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+            ble_gap_terminate(event->enc_change.conn_handle, BLE_ERR_AUTH_FAIL);
         }
         return 0;
 
     case BLE_GAP_EVENT_PASSKEY_ACTION: {
         if (event->passkey.params.action != BLE_SM_IOACT_DISP || !pairing_allowed()) {
             ESP_LOGW(TAG, "pairing refused");
-            ble_gap_terminate(event->passkey.conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+            ble_gap_terminate(event->passkey.conn_handle, BLE_ERR_AUTH_FAIL);
             return 0;
         }
         struct ble_sm_io io = {
@@ -331,8 +348,11 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
         if (event->subscribe.attr_handle == s_tx_handle) {
             s_subscribed = event->subscribe.cur_notify;
         } else if (event->subscribe.attr_handle == s_evt_handle) {
-            s_evt_subscribed = event->subscribe.cur_notify;
-            update_bridge_session();
+            /* A restore would arrive before the phone can receive: only its own write counts. */
+            if (event->subscribe.reason != BLE_GAP_SUBSCRIBE_REASON_RESTORE || !event->subscribe.cur_notify) {
+                s_evt_subscribed = event->subscribe.cur_notify;
+                update_bridge_session();
+            }
         }
         return 0;
 
@@ -351,12 +371,15 @@ static void advertise(void)
         return;
     }
 
-    const char *name = ble_svc_gap_device_name();
+    /*
+     * The bridge UUID goes in the advertising packet itself: phones identify a Keyling by it,
+     * and background (passive) scans never request the scan response.
+     */
     struct ble_hs_adv_fields fields = {
         .flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP,
-        .name = (const uint8_t *)name,
-        .name_len = strlen(name),
-        .name_is_complete = 1,
+        .uuids128 = &BRIDGE_SVC_UUID,
+        .num_uuids128 = 1,
+        .uuids128_is_complete = 1,
     };
     int rc = ble_gap_adv_set_fields(&fields);
     if (rc != 0) {
@@ -364,10 +387,16 @@ static void advertise(void)
         return;
     }
 
+    /* 31 bytes: NUS UUID (18) leaves 11 for the name; longer names go out shortened. */
+    const char *name = ble_svc_gap_device_name();
+    size_t name_len = strlen(name);
     struct ble_hs_adv_fields rsp = {
         .uuids128 = &NUS_SVC_UUID,
         .num_uuids128 = 1,
         .uuids128_is_complete = 1,
+        .name = (const uint8_t *)name,
+        .name_len = name_len > ADV_NAME_MAX ? ADV_NAME_MAX : name_len,
+        .name_is_complete = name_len <= ADV_NAME_MAX,
     };
     rc = ble_gap_adv_rsp_set_fields(&rsp);
     if (rc != 0) {
@@ -389,6 +418,7 @@ static void advertise(void)
 
 static void on_sync(void)
 {
+    forget_evt_subscription(NULL);
     ble_hs_util_ensure_addr(0);
     ble_hs_id_infer_auto(0, &s_own_addr_type);
     advertise();

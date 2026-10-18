@@ -86,8 +86,8 @@ static char s_serial[13];
 
 static const char *s_strings[STRID_COUNT] = {
     [STRID_LANGID] = "\x09\x04",
-    [STRID_MANUFACTURER] = "T-Dongle",
-    [STRID_PRODUCT] = "BLE Input Bridge",
+    [STRID_MANUFACTURER] = "Keyling",
+    [STRID_PRODUCT] = "Keyling",
     [STRID_SERIAL] = s_serial,
     [STRID_CDC] = "Console",
     [STRID_HID] = "Keyboard",
