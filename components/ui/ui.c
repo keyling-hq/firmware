@@ -506,8 +506,13 @@ static void update_overlay(void)
         return;
     }
     s_overlay = want;
-    screen_set(true);
-    lv_display_trigger_activity(NULL);
+    /* Typing never wakes the screen: it only shows if the screen was already on. */
+    if (want != OVERLAY_NONE && want != OVERLAY_TYPING) {
+        screen_set(true);
+    }
+    if (s_screen_on) {
+        lv_display_trigger_activity(NULL);
+    }
 
     static const ui_screen_fn_t screens[] = {
         [OVERLAY_NONE] = show_home,
