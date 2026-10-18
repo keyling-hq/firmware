@@ -49,6 +49,7 @@ void ui_menu_end(lv_obj_t *list, lv_obj_t *focus);
 void ui_submenu_cb(lv_event_t *e);
 
 #define UI_HOLD_EXIT_MS     1000
+#define UI_HOLD_RESET_MS    3000
 
 /**
  * A menu item that fills up while held and runs cb once held for duration_ms (counted from when

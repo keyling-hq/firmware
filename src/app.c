@@ -2,9 +2,13 @@
 #include "app.h"
 #include "ble_link.h"
 #include "bsp/tdongle.h"
+#include "datafs.h"
+#include "esp_attr.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "keymap.h"
+#include "keystore.h"
 #include "ota_update.h"
 #include "protocol.h"
 #include "settings.h"
@@ -27,6 +31,26 @@ static volatile ble_link_state_t s_ble_state = BLE_LINK_ADVERTISING;
 static volatile bool s_typing;
 static volatile bool s_usb_mounted;
 static status_led_pattern_t s_led = STATUS_LED_OFF;
+
+#define FACTORY_RESET_MAGIC 0x52455345u
+
+/* Survives a software restart, unlike regular RAM. */
+static RTC_NOINIT_ATTR uint32_t s_factory_reset_request;
+
+void app_factory_reset_request(void)
+{
+    ESP_LOGW(TAG, "factory reset requested");
+    s_factory_reset_request = FACTORY_RESET_MAGIC;
+    esp_restart();
+}
+
+bool app_factory_reset_pending(void)
+{
+    bool pending = s_factory_reset_request == FACTORY_RESET_MAGIC
+                   && esp_reset_reason() == ESP_RST_SW;
+    s_factory_reset_request = 0;
+    return pending;
+}
 
 static const keymap_layout_t *layout_for(const char *id)
 {
@@ -100,6 +124,9 @@ static void ui_action_cb(ui_action_t action, int arg)
         break;
     case UI_ACTION_FORGET_PHONE:
         ble_link_forget();
+        break;
+    case UI_ACTION_FACTORY_RESET:
+        app_factory_reset_request();
         break;
     }
 }
@@ -277,6 +304,8 @@ static void ble_bridge_abort_cb(void *ctx)
 
 esp_err_t app_start(void)
 {
+    ESP_RETURN_ON_ERROR(keystore_init(), TAG, "keystore");
+    ESP_RETURN_ON_ERROR(datafs_mount(), TAG, "data fs");
     ESP_RETURN_ON_ERROR(settings_init(), TAG, "settings");
     ESP_RETURN_ON_ERROR(status_led_start(), TAG, "status led");
 

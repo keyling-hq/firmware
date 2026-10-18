@@ -17,6 +17,7 @@ typedef enum {
     UI_ACTION_PAIR_NEW,
     UI_ACTION_CANCEL_PAIRING,
     UI_ACTION_FORGET_PHONE,
+    UI_ACTION_FACTORY_RESET,
 } ui_action_t;
 
 typedef enum {
