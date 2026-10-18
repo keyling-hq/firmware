@@ -4,12 +4,12 @@
 #include "lvgl.h"
 #include "iot_button.h"
 
-/* Virtual key that only turns the screen on. Outside the LV_KEY_* range. */
-#define UI_KEY_WAKE     0x1000
-
 /**
- * Keypad indev fed by discrete button gestures. Each gesture is a separate virtual key:
- *   click -> LV_KEY_NEXT, long press -> LV_KEY_ENTER, double click -> LV_KEY_PREV + LV_KEY_ESC
+ * Keypad indev fed by button gestures:
+ *   click             -> LV_KEY_NEXT pressed and released
+ *   double click      -> LV_KEY_PREV + LV_KEY_ESC
+ *   hold              -> LV_KEY_ENTER pressed once the hold is recognised, released on release,
+ *                        so widgets get PRESSED, PRESSING, RELEASED as with a real key
  * While the screen is off, the first gesture only wakes it.
  * Must be called with the LVGL lock held.
  */

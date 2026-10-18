@@ -25,7 +25,6 @@ extern "C" {
 #define BSP_BUTTON_GPIO         0
 #define BSP_BUTTON_SHORT_MS     180     /* single/double click window */
 #define BSP_BUTTON_LONG_MS      600
-
 /* APA102 RGB LED */
 #define BSP_LED_DATA            40
 #define BSP_LED_CLK             39
