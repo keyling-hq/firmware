@@ -19,6 +19,7 @@ typedef enum {
     UI_ACTION_FORGET_PHONE,
     UI_ACTION_FACTORY_RESET,
     UI_ACTION_FIDO_CONFIRM,
+    UI_ACTION_LOG_DIAGNOSTICS,
 } ui_action_t;
 
 typedef enum {
@@ -41,6 +42,8 @@ esp_err_t ui_start(button_handle_t btn, ui_action_cb_t action_cb);
  * confirmation, typing, pairing window.
  */
 void ui_show_update(bool active, uint8_t percent);
+/** Short status of the security key for the About screen ("ok" or an error name). */
+void ui_set_fido_status(const char *status);
 void ui_show_fido_presence(bool waiting);
 void ui_set_usb_state(bool mounted);
 void ui_set_ble_state(ui_ble_state_t state);

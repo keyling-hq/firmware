@@ -90,7 +90,10 @@ static void show_about(void)
 {
     keystore_status_t ks;
     keystore_status(&ks);
-    lv_obj_t *list = ui_menu_begin("About", show_settings);
+    ui_emit(UI_ACTION_LOG_DIAGNOSTICS, 0);
+    char title[40];
+    snprintf(title, sizeof(title), "About  FIDO %s", ui_fido_status());
+    lv_obj_t *list = ui_menu_begin(title, show_settings);
     lv_obj_t *info = lv_label_create(list);
     lv_label_set_text_fmt(info, "Keyling %s\n%s\nkeys %s, boot %s, enc %s",
                           fw_info_version(),

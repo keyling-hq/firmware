@@ -32,6 +32,8 @@ void ui_emit(ui_action_t action, int arg);
 /** Leaves the current app (if any) and returns to the launcher. */
 void ui_app_exit(void);
 
+const char *ui_fido_status(void);
+
 /** The phone is typing: apps must not produce host input meanwhile. */
 bool ui_host_busy(void);
 

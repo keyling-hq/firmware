@@ -559,6 +559,18 @@ void ui_set_ble_state(ui_ble_state_t state)
     lvgl_port_unlock();
 }
 
+static const char *s_fido_status = "off";
+
+void ui_set_fido_status(const char *status)
+{
+    s_fido_status = status;
+}
+
+const char *ui_fido_status(void)
+{
+    return s_fido_status;
+}
+
 void ui_show_fido_presence(bool waiting)
 {
     if (!lvgl_port_lock(0)) {
