@@ -44,7 +44,18 @@ esp_err_t ui_start(button_handle_t btn, ui_action_cb_t action_cb);
 void ui_show_update(bool active, uint8_t percent);
 /** Short status of the security key for the About screen ("ok" or an error name). */
 void ui_set_fido_status(const char *status);
-void ui_show_fido_presence(bool waiting);
+typedef enum {
+    UI_FIDO_OTHER,
+    UI_FIDO_REGISTER,
+    UI_FIDO_SIGN_IN,
+    UI_FIDO_SELECT,
+    UI_FIDO_RESET,
+} ui_fido_request_t;
+
+/** A security key request waits for the user: shows what is asked and a hold-to-approve button. */
+void ui_show_fido_request(ui_fido_request_t kind, const char *rp_id);
+/** The request was answered (approved) or ended without approval: shows the outcome briefly. */
+void ui_show_fido_done(bool approved);
 void ui_set_usb_state(bool mounted);
 void ui_set_ble_state(ui_ble_state_t state);
 void ui_show_typing(bool typing);

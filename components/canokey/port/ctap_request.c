@@ -1,0 +1,124 @@
+/*
+ * Notes the kind of each CTAP command and its relying party, so the presence prompt can say what
+ * is being approved. canokey-core doesn't pass this to wait_for_user_presence(), so its two CBOR
+ * entry points are wrapped at link time (-Wl,--wrap) and the request is peeked at before it runs.
+ */
+#include <string.h>
+#include "ctap_request.h"
+#include <cbor.h>
+#include <ctap.h>
+#include <ctap-internal.h>
+#include <ctaphid.h>
+
+/* Canonical CTAP CBOR sorts keys, so the relying party is near the start of the request. */
+#define PEEK_BYTES          320
+#define WINDOWS_PROBE_RP    "SelectDevice"
+
+static uint8_t s_peek[PEEK_BYTES];
+static volatile canokey_request_t s_kind;
+static char s_rp_id[CANOKEY_RP_ID_MAX];
+
+static void copy_rp_id(CborValue *value)
+{
+    size_t len = sizeof(s_rp_id);
+    if (!cbor_value_is_text_string(value) || cbor_value_copy_text_string(value, s_rp_id, &len, NULL) != CborNoError) {
+        s_rp_id[0] = '\0';
+    }
+}
+
+/* makeCredential: key 2 is the rp map, whose "id" is the relying party. */
+static void find_rp_in_map(CborValue *rp)
+{
+    CborValue field;
+    if (!cbor_value_is_map(rp) || cbor_value_map_find_value(rp, "id", &field) != CborNoError) {
+        return;
+    }
+    copy_rp_id(&field);
+}
+
+static void parse_rp(const uint8_t *params, size_t len, int rp_key, bool rp_is_map)
+{
+    CborParser parser;
+    CborValue it, map;
+    if (cbor_parser_init(params, len, 0, &parser, &it) != CborNoError || !cbor_value_is_map(&it) ||
+        cbor_value_enter_container(&it, &map) != CborNoError) {
+        return;
+    }
+    while (!cbor_value_at_end(&map)) {
+        int key;
+        if (!cbor_value_is_integer(&map) || cbor_value_get_int(&map, &key) != CborNoError ||
+            cbor_value_advance(&map) != CborNoError) {
+            return;
+        }
+        if (key == rp_key) {
+            if (rp_is_map) {
+                find_rp_in_map(&map);
+            } else {
+                copy_rp_id(&map);
+            }
+            return;
+        }
+        if (cbor_value_advance(&map) != CborNoError) {
+            return;
+        }
+    }
+}
+
+static void note_request(const uint8_t *req, size_t len)
+{
+    s_rp_id[0] = '\0';
+    s_kind = CANOKEY_REQUEST_OTHER;
+    if (len < 1) {
+        return;
+    }
+    switch (req[0]) {
+    case CTAP_MAKE_CREDENTIAL:
+        parse_rp(req + 1, len - 1, MC_REQ_RP, true);
+        s_kind = strcmp(s_rp_id, WINDOWS_PROBE_RP) == 0 ? CANOKEY_REQUEST_SELECT : CANOKEY_REQUEST_REGISTER;
+        break;
+    case CTAP_GET_ASSERTION:
+        parse_rp(req + 1, len - 1, GA_REQ_RP_ID, false);
+        s_kind = CANOKEY_REQUEST_SIGN_IN;
+        break;
+    case CTAP_SELECTION:
+        s_kind = CANOKEY_REQUEST_SELECT;
+        break;
+    case CTAP_RESET:
+        s_kind = CANOKEY_REQUEST_RESET;
+        break;
+    default:
+        break;
+    }
+}
+
+void ctap_request_current(canokey_request_t *kind, const char **rp_id)
+{
+    *kind = s_kind;
+    *rp_id = s_rp_id;
+}
+
+int __real_ctap_process_cbor_stream_with_src(uint8_t *req, size_t req_len, uint8_t *scratch, size_t scratch_len,
+                                             CTAPHID_TxSource *source, ctap_src_t src);
+int __real_ctap_process_cbor_stream_source_with_src(const ctap_req_src_t *req_src, uint8_t *scratch,
+                                                    size_t scratch_len, CTAPHID_TxSource *source, ctap_src_t src);
+
+int __wrap_ctap_process_cbor_stream_with_src(uint8_t *req, size_t req_len, uint8_t *scratch, size_t scratch_len,
+                                             CTAPHID_TxSource *source, ctap_src_t src)
+{
+    if (req) {
+        note_request(req, req_len);
+    }
+    return __real_ctap_process_cbor_stream_with_src(req, req_len, scratch, scratch_len, source, src);
+}
+
+int __wrap_ctap_process_cbor_stream_source_with_src(const ctap_req_src_t *req_src, uint8_t *scratch,
+                                                    size_t scratch_len, CTAPHID_TxSource *source, ctap_src_t src)
+{
+    if (req_src && req_src->read) {
+        size_t len = req_src->len < sizeof(s_peek) ? req_src->len : sizeof(s_peek);
+        if (req_src->read(req_src->ctx, req_src->base_offset, s_peek, len) >= 0) {
+            note_request(s_peek, len);
+        }
+    }
+    return __real_ctap_process_cbor_stream_source_with_src(req_src, scratch, scratch_len, source, src);
+}

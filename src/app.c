@@ -362,10 +362,24 @@ static void ble_bridge_abort_cb(void *ctx)
     protocol_abort();
 }
 
-static void fido_presence_cb(bool waiting, void *ctx)
+static void fido_presence_cb(bool waiting, canokey_request_t kind, const char *rp_id, bool approved, void *ctx)
 {
-    ESP_LOGI(TAG, "fido: %s user presence", waiting ? "waiting for" : "done with");
-    ui_show_fido_presence(waiting);
+    static const ui_fido_request_t ui_kinds[] = {
+        [CANOKEY_REQUEST_OTHER] = UI_FIDO_OTHER,
+        [CANOKEY_REQUEST_REGISTER] = UI_FIDO_REGISTER,
+        [CANOKEY_REQUEST_SIGN_IN] = UI_FIDO_SIGN_IN,
+        [CANOKEY_REQUEST_SELECT] = UI_FIDO_SELECT,
+        [CANOKEY_REQUEST_RESET] = UI_FIDO_RESET,
+    };
+    if (waiting) {
+        ESP_LOGI(TAG, "fido: request %d for '%s' waits for presence", kind, rp_id);
+        status_led_attention(STATUS_LED_ATTENTION_FIDO);
+        ui_show_fido_request(ui_kinds[kind], rp_id);
+    } else {
+        ESP_LOGI(TAG, "fido: request %s", approved ? "approved" : "not approved");
+        status_led_attention(STATUS_LED_ATTENTION_NONE);
+        ui_show_fido_done(approved);
+    }
 }
 
 esp_err_t app_start(void)

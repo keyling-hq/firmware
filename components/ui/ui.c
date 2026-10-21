@@ -18,6 +18,7 @@ typedef enum {
     OVERLAY_NONE,
     OVERLAY_PAIRING,
     OVERLAY_TYPING,
+    OVERLAY_FIDO_RESULT,
     OVERLAY_FIDO,
     OVERLAY_PASSKEY,
     OVERLAY_UPDATE,
@@ -30,6 +31,7 @@ static const ui_app_t *const s_apps[] = {
 #define APP_COUNT (sizeof(s_apps) / sizeof(s_apps[0]))
 
 static void show_home(void);
+static void update_overlay(void);
 
 static ui_action_cb_t s_action_cb;
 static lv_indev_t *s_indev;
@@ -41,6 +43,10 @@ static bool s_usb_mounted;
 static ui_ble_state_t s_ble_state = UI_BLE_ADVERTISING;
 static bool s_typing;
 static bool s_fido_waiting;
+static ui_fido_request_t s_fido_kind;
+static char s_fido_rp_id[64];
+static bool s_fido_result_shown;
+static bool s_fido_approved;
 static bool s_pairing;
 static bool s_passkey_shown;
 static uint32_t s_passkey;
@@ -450,16 +456,53 @@ static lv_obj_t *overlay_begin(const char *title, const char *button, ui_action_
     return list;
 }
 
-/* Shows no counts or text: either would leak password length or content. */
+static void fido_approve(void)
+{
+    ui_emit(UI_ACTION_FIDO_CONFIRM, 0);
+}
+
+/* Double click must not approve (or leave) here: only the hold button answers the request. */
 static void show_fido(void)
 {
-    lv_obj_t *list = overlay_begin("Security key", "Hold to confirm", UI_ACTION_FIDO_CONFIRM);
-    lv_obj_t *info = lv_label_create(list);
-    lv_label_set_text(info, "Sign-in request");
-    lv_obj_move_to_index(info, 0);
+    static const char *const titles[] = {
+        [UI_FIDO_OTHER] = "Security key",
+        [UI_FIDO_REGISTER] = "Register on",
+        [UI_FIDO_SIGN_IN] = "Sign in to",
+        [UI_FIDO_SELECT] = "Use this key?",
+        [UI_FIDO_RESET] = "Erase security key?",
+    };
+    lv_obj_t *list = ui_menu_begin(titles[s_fido_kind], NULL);
+    if (s_fido_rp_id[0] && (s_fido_kind == UI_FIDO_REGISTER || s_fido_kind == UI_FIDO_SIGN_IN)) {
+        lv_obj_t *rp = lv_label_create(list);
+        lv_obj_set_width(rp, lv_pct(100));
+        lv_label_set_long_mode(rp, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
+        lv_label_set_text(rp, s_fido_rp_id);
+    }
+    const char *verb = s_fido_kind == UI_FIDO_RESET ? "Hold to erase" : "Hold to approve";
+    lv_obj_t *hold = ui_hold_add(list, verb, UI_HOLD_CONFIRM_MS, fido_approve);
+    lv_obj_remove_event_cb(hold, item_key_cb);
+    ui_menu_end(list, hold);
+}
+
+static void fido_result_timer_cb(lv_timer_t *timer)
+{
+    s_fido_result_shown = false;
+    update_overlay();
+}
+
+static void show_fido_result(void)
+{
+    lv_obj_t *list = ui_menu_begin("Security key", NULL);
+    lv_obj_t *result = lv_label_create(list);
+    lv_obj_set_width(result, lv_pct(100));
+    lv_obj_set_style_text_align(result, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(result, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(result, lv_palette_main(s_fido_approved ? LV_PALETTE_GREEN : LV_PALETTE_RED), 0);
+    lv_label_set_text(result, s_fido_approved ? LV_SYMBOL_OK " Approved" : LV_SYMBOL_CLOSE " Not approved");
     ui_menu_end(list, NULL);
 }
 
+/* Shows no counts or text: either would leak password length or content. */
 static void show_typing(void)
 {
     ui_menu_end(overlay_begin("Typing...", "Hold to abort", UI_ACTION_ABORT_TYPING), NULL);
@@ -511,6 +554,7 @@ static void update_overlay(void)
     overlay_t want = s_updating      ? OVERLAY_UPDATE
                      : s_passkey_shown ? OVERLAY_PASSKEY
                      : s_fido_waiting ? OVERLAY_FIDO
+                     : s_fido_result_shown ? OVERLAY_FIDO_RESULT
                      : s_typing      ? OVERLAY_TYPING
                      : s_pairing     ? OVERLAY_PAIRING
                      : OVERLAY_NONE;
@@ -530,6 +574,7 @@ static void update_overlay(void)
         [OVERLAY_NONE] = show_home,
         [OVERLAY_PAIRING] = show_pairing,
         [OVERLAY_TYPING] = show_typing,
+        [OVERLAY_FIDO_RESULT] = show_fido_result,
         [OVERLAY_FIDO] = show_fido,
         [OVERLAY_PASSKEY] = show_passkey,
         [OVERLAY_UPDATE] = show_update,
@@ -571,12 +616,33 @@ const char *ui_fido_status(void)
     return s_fido_status;
 }
 
-void ui_show_fido_presence(bool waiting)
+/* Waits for the lock: dropping these would leave a request without its prompt. */
+#define FIDO_LOCK_MS        200
+#define FIDO_RESULT_MS      1500
+
+void ui_show_fido_request(ui_fido_request_t kind, const char *rp_id)
 {
-    if (!lvgl_port_lock(0)) {
+    if (!lvgl_port_lock(FIDO_LOCK_MS)) {
         return;
     }
-    s_fido_waiting = waiting;
+    s_fido_kind = kind;
+    snprintf(s_fido_rp_id, sizeof(s_fido_rp_id), "%s", rp_id ? rp_id : "");
+    s_fido_waiting = true;
+    s_fido_result_shown = false;
+    update_overlay();
+    lvgl_port_unlock();
+}
+
+void ui_show_fido_done(bool approved)
+{
+    if (!lvgl_port_lock(FIDO_LOCK_MS)) {
+        return;
+    }
+    s_fido_waiting = false;
+    s_fido_approved = approved;
+    s_fido_result_shown = true;
+    lv_timer_t *timer = lv_timer_create(fido_result_timer_cb, FIDO_RESULT_MS, NULL);
+    lv_timer_set_repeat_count(timer, 1);
     update_overlay();
     lvgl_port_unlock();
 }

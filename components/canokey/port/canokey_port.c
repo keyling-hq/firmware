@@ -1,5 +1,6 @@
 #include <string.h>
 #include "canokey_port.h"
+#include "ctap_request.h"
 #include "ctaphid_glue.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -20,6 +21,7 @@
 #include <apdu.h>
 #include <ctap.h>
 #include <ctap-internal.h>
+#include <ctaphid.h>
 #include <device.h>
 #include <fs.h>
 #include <lfs.h>
@@ -35,7 +37,6 @@ static const char *TAG = "canokey";
 #define TASK_STACK          12288
 #define TASK_PRIO           2
 #define LOOP_IDLE_MS        2
-#define LED_TICK_MS         20
 
 #define NVS_NAMESPACE       "canokey"
 #define NVS_CONFIG_PAGE     "cfgpage"
@@ -59,7 +60,7 @@ static int s_boot_fs_size;
 static int s_boot_cert_size;
 static canokey_presence_cb_t s_presence_cb;
 static void *s_presence_ctx;
-static bool s_presence_waiting;
+static volatile bool s_presence_waiting;
 
 /* ---- platform hooks required by canokey-core (include/device.h) ---------- */
 
@@ -306,19 +307,64 @@ static esp_err_t install_dev_attestation(void)
 
 /* ---- user presence -------------------------------------------------------- */
 
-/*
- * canokey asks for presence by "blinking"; the blink state is polled to drive the UI prompt.
- * Only polled here: device_update_led() reads the config page and belongs on the canokey task.
- */
-static void led_timer_cb(void *arg)
+#define PRESENCE_TIMEOUT_MS     15000
+#define KEEPALIVE_INTERVAL_MS   100
+
+static void report_presence(bool waiting, bool approved)
 {
-    bool waiting = device_is_blinking();
-    if (waiting != s_presence_waiting) {
-        s_presence_waiting = waiting;
-        if (s_presence_cb) {
-            s_presence_cb(waiting, s_presence_ctx);
+    canokey_request_t kind;
+    const char *rp_id;
+    ctap_request_current(&kind, &rp_id);
+    if (s_presence_cb) {
+        s_presence_cb(waiting, kind, rp_id, approved, s_presence_ctx);
+    }
+}
+
+/*
+ * Replaces canokey-core's wait_for_user_presence() (linked with -Wl,--wrap): the same loop as
+ * src/device.c, with a shorter timeout and the prompt driven directly from here.
+ */
+uint8_t __wrap_wait_for_user_presence(uint8_t entry)
+{
+    device_applet_session_owner_t owner = device_applet_session_owner();
+    if (owner == DEVICE_APPLET_SESSION_NONE) {
+        owner = entry == WAIT_ENTRY_CTAPHID ? DEVICE_APPLET_SESSION_CTAPHID : DEVICE_APPLET_SESSION_CCID;
+    }
+    /* A new presence test is denied while one is ongoing. */
+    if (s_presence_waiting) {
+        return USER_PRESENCE_TIMEOUT;
+    }
+    s_presence_waiting = true;
+    set_touch_result(TOUCH_NO);
+    report_presence(true, false);
+
+    uint8_t result = USER_PRESENCE_OK;
+    uint32_t start = device_get_tick();
+    uint32_t last = start;
+    while (get_touch_result() == TOUCH_NO) {
+        device_applet_session_touch(owner);
+        start_blinking(0);
+        if (CTAPHID_Loop(1) == LOOP_CANCEL && owner == DEVICE_APPLET_SESSION_CTAPHID) {
+            result = USER_PRESENCE_CANCEL;
+            break;
+        }
+        uint32_t now = device_get_tick();
+        if (now - start >= PRESENCE_TIMEOUT_MS) {
+            result = USER_PRESENCE_TIMEOUT;
+            break;
+        }
+        if (now - last >= KEEPALIVE_INTERVAL_MS) {
+            last = now;
+            if (owner == DEVICE_APPLET_SESSION_CTAPHID) {
+                CTAPHID_SendKeepAlive(KEEPALIVE_STATUS_UPNEEDED);
+            }
         }
     }
+    set_touch_result(TOUCH_NO);
+    stop_blinking();
+    s_presence_waiting = false;
+    report_presence(false, result == USER_PRESENCE_OK);
+    return result;
 }
 
 void canokey_confirm_presence(void)
@@ -327,7 +373,6 @@ void canokey_confirm_presence(void)
         set_touch_result(TOUCH_SHORT);
     }
 }
-
 /* ---- task ------------------------------------------------------------------ */
 
 /* Runs on the canokey task: its install paths need several KB of stack. */
@@ -346,11 +391,7 @@ static esp_err_t startup(void)
     s_boot_cert_size = get_file_size(CTAP_CERT_FILE);
     s_status = "usb fail";
     ESP_RETURN_ON_ERROR(ctaphid_glue_start(), TAG, "ctaphid");
-    s_status = "timer fail";
-    const esp_timer_create_args_t timer_args = { .callback = led_timer_cb, .name = "canokey_led" };
-    esp_timer_handle_t timer;
-    ESP_RETURN_ON_ERROR(esp_timer_create(&timer_args, &timer), TAG, "timer");
-    ESP_RETURN_ON_ERROR(esp_timer_start_periodic(timer, LED_TICK_MS * 1000), TAG, "timer start");
+
     s_status = "ok";
     ESP_LOGI(TAG, "started: FIDO filesystem %u KB", (unsigned)(s_part->size / 1024));
     return ESP_OK;

@@ -58,6 +58,7 @@ endif()
 idf_component_register(
     SRCS ${CK_SRCS}
          "port/canokey_port.c"
+         "port/ctap_request.c"
          "port/ctaphid_glue.c"
          "port/crypto_stubs.c"
          "port/dev_attestation.c"
@@ -97,3 +98,11 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
     DEBUG_OUTPUT
 )
 target_compile_options(${COMPONENT_LIB} PRIVATE -Wno-unused-function -Wno-unused-variable -Wno-format -Wno-error)
+
+# port/ctap_request.c peeks at each CTAP command before canokey processes it;
+# port/canokey_port.c replaces the user presence wait.
+target_link_libraries(${COMPONENT_LIB} INTERFACE
+    "-Wl,--wrap=ctap_process_cbor_stream_with_src"
+    "-Wl,--wrap=ctap_process_cbor_stream_source_with_src"
+    "-Wl,--wrap=wait_for_user_presence"
+)
