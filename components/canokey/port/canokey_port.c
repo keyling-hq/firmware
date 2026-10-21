@@ -13,16 +13,13 @@
 #include "esp_timer.h"
 #include "nvs.h"
 #include <stdio.h>
-#include <admin.h>
-#include <oath.h>
-#include <openpgp.h>
-#include <pass.h>
-#include <piv.h>
 #include <apdu.h>
+#include <applets.h>
 #include <ctap.h>
 #include <ctap-internal.h>
 #include <ctaphid.h>
 #include <device.h>
+#include <device-config.h>
 #include <fs.h>
 #include <lfs.h>
 #include <platform-config.h>
@@ -31,9 +28,9 @@
 static const char *TAG = "canokey";
 
 #define PARTITION_LABEL     "fido"
-#define LFS_BLOCK_SIZE      4096
-#define LFS_CACHE_SIZE      256
-#define LFS_LOOKAHEAD_SIZE  32
+#define FS_BLOCK_SIZE       4096
+#define FS_CACHE_SIZE       256
+#define FS_LOOKAHEAD_SIZE   32
 #define TASK_STACK          12288
 #define TASK_PRIO           2
 #define LOOP_IDLE_MS        2
@@ -47,9 +44,9 @@ extern const size_t canokey_dev_attestation_cert_len;
 
 static const esp_partition_t *s_part;
 static bool s_fs_mounted;
-static uint8_t s_read_buf[LFS_CACHE_SIZE];
-static uint8_t s_prog_buf[LFS_CACHE_SIZE];
-static uint8_t s_lookahead_buf[LFS_LOOKAHEAD_SIZE];
+static uint8_t s_read_buf[FS_CACHE_SIZE];
+static uint8_t s_prog_buf[FS_CACHE_SIZE];
+static uint8_t s_lookahead_buf[FS_LOOKAHEAD_SIZE];
 static struct lfs_config s_lfs_cfg;
 
 static const char *s_status = "not started";
@@ -213,11 +210,11 @@ static esp_err_t fs_start(void)
         .sync = lfs_sync,
         .read_size = 16,
         .prog_size = 16,
-        .block_size = LFS_BLOCK_SIZE,
-        .block_count = s_part->size / LFS_BLOCK_SIZE,
+        .block_size = FS_BLOCK_SIZE,
+        .block_count = s_part->size / FS_BLOCK_SIZE,
         .block_cycles = 500,
-        .cache_size = LFS_CACHE_SIZE,
-        .lookahead_size = LFS_LOOKAHEAD_SIZE,
+        .cache_size = FS_CACHE_SIZE,
+        .lookahead_size = FS_LOOKAHEAD_SIZE,
         .read_buffer = s_read_buf,
         .prog_buffer = s_prog_buf,
         .lookahead_buffer = s_lookahead_buf,
@@ -235,52 +232,33 @@ static esp_err_t fs_start(void)
 
 static char s_status_buf[32];
 
-/* applets_install() with the failing applet recorded: boot logs are usually not visible. */
-static esp_err_t install_failed(const char *applet, int rc)
-{
-    snprintf(s_status_buf, sizeof(s_status_buf), "%s install %d", applet, rc);
-    s_status = s_status_buf;
-    ESP_LOGE(TAG, "%s", s_status_buf);
-    return ESP_FAIL;
-}
-
-/*
- * An applet whose state is inconsistent (e.g. an install interrupted halfway) refuses to start;
- * the non-FIDO applets hold nothing yet, so they are reset instead. CTAP never is: it rebuilds
- * incomplete state itself, and resetting it would delete credentials.
- */
-static int install_or_reset(const char *name, int (*install)(uint8_t reset))
-{
-    int rc = install(0);
-    if (rc < 0) {
-        ESP_LOGW(TAG, "%s install failed (%d), resetting it", name, rc);
-        rc = install(1);
-    }
-    return rc;
-}
-
+/* Replaces canokey's applets_install(): only the FIDO applet is built. */
 static esp_err_t install_applets(void)
 {
-    int rc;
-    if ((rc = install_or_reset("openpgp", openpgp_install)) < 0) {
-        return install_failed("openpgp", rc);
-    }
-    if ((rc = install_or_reset("piv", piv_install)) < 0) {
-        return install_failed("piv", rc);
-    }
-    if ((rc = install_or_reset("oath", oath_install)) < 0) {
-        return install_failed("oath", rc);
-    }
-    if ((rc = ctap_install(0)) != 0) {
-        return install_failed("ctap", rc);
-    }
-    if ((rc = install_or_reset("admin", admin_install)) < 0) {
-        return install_failed("admin", rc);
-    }
-    if ((rc = install_or_reset("pass", pass_install)) < 0) {
-        return install_failed("pass", rc);
+    int rc = ctap_install(0);
+    if (rc != 0) {
+        snprintf(s_status_buf, sizeof(s_status_buf), "ctap install %d", rc);
+        s_status = s_status_buf;
+        ESP_LOGE(TAG, "%s", s_status_buf);
+        return ESP_FAIL;
     }
     return ESP_OK;
+}
+
+void applets_poweroff(void)
+{
+    ctap_poweroff();
+}
+
+/* Settings the admin applet would otherwise hold. */
+uint8_t device_config_is_webauthn_enabled(void)
+{
+    return 1;
+}
+
+uint8_t device_config_is_led_normally_on(void)
+{
+    return 0;
 }
 
 /* ---- attestation --------------------------------------------------------- */
@@ -416,23 +394,18 @@ static bool startup_crashed_before(void)
     return s_crashed_startups >= MAX_CRASHED_STARTUPS;
 }
 
-/* A failed startup waits for canokey_log_diagnostics() to ask for a retry. */
 static void canokey_task(void *arg)
 {
     if (startup_crashed_before()) {
         s_status = "skipped after crash";
-        ESP_LOGE(TAG, "startup crashed %lu times: skipped until a retry", (unsigned long)s_crashed_startups);
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        ESP_LOGE(TAG, "startup crashed %lu times: skipped until power-on", (unsigned long)s_crashed_startups);
+        vTaskDelete(NULL);
     }
-    for (;;) {
-        s_crashed_startups++;
-        esp_err_t err = startup();
-        s_crashed_startups = 0;
-        if (err == ESP_OK) {
-            break;
-        }
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        ESP_LOGW(TAG, "retrying startup with canokey debug output");
+    s_crashed_startups++;
+    esp_err_t err = startup();
+    s_crashed_startups = 0;
+    if (err != ESP_OK) {
+        vTaskDelete(NULL);
     }
     s_running = true;
     for (;;) {
@@ -451,10 +424,6 @@ void canokey_log_diagnostics(void)
 {
     ESP_LOGI(TAG, "status: %s", s_status);
     if (!s_running) {
-        if (s_task) {
-            ESP_LOGW(TAG, "asking the canokey task to retry startup; reopen About for the result");
-            xTaskNotifyGive(s_task);
-        }
         return;
     }
     /* Captured at startup: canokey's filesystem must only be touched from its own task. */

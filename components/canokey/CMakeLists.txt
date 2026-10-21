@@ -2,18 +2,18 @@ set(CK ${CMAKE_CURRENT_LIST_DIR}/canokey-core)
 set(CK_CRYPTO ${CK}/canokey-crypto)
 set(CK_GEN ${CMAKE_CURRENT_LIST_DIR}/generated)
 
+# Keyling's own authenticator model ID, reported in getInfo and in every registration.
+set(KEYLING_AAGUID "05a81905-d41d-4b55-b25c-13023c26d9de")
+
+# Only the FIDO applet: canokey's applets_install() (src/applets.c) is replaced by the port.
 file(GLOB CK_SRCS
     ${CK}/src/*.c
-    ${CK}/applets/admin/*.c
     ${CK}/applets/ctap/*.c
-    ${CK}/applets/oath/*.c
-    ${CK}/applets/openpgp/*.c
-    ${CK}/applets/pass/*.c
-    ${CK}/applets/piv/*.c
     ${CK_CRYPTO}/src/*.c
 )
-list(FILTER CK_SRCS EXCLUDE REGEX "ml-dsa-65\\.c$|ml-kem-768\\.c$")
+list(FILTER CK_SRCS EXCLUDE REGEX "/src/applets\\.c$|/ctap/ctap\\.c$|ml-dsa-65\\.c$|ml-kem-768\\.c$")
 list(APPEND CK_SRCS
+    ${CK_GEN}/ctap.c
     ${CK}/interfaces/USB/class/ctaphid/ctaphid.c
     ${CK}/tinycbor/src/cborencoder.c
     ${CK}/tinycbor/src/cborparser.c
@@ -41,9 +41,27 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)
     file(WRITE ${CK_GEN}/tinycbor-version.h
         "#define TINYCBOR_VERSION_MAJOR 7\n#define TINYCBOR_VERSION_MINOR 0\n#define TINYCBOR_VERSION_PATCH 0\n")
 
+    # Copies of upstream files with CanoKey's AAGUID replaced by Keyling's.
+    string(REPLACE "-" "" aaguid_hex ${KEYLING_AAGUID})
+    string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1, " aaguid_c ${aaguid_hex})
+    function(copy_replacing src dst pattern replacement)
+        file(READ ${src} text)
+        string(REGEX REPLACE "${pattern}" "${replacement}" patched "${text}")
+        if(patched STREQUAL text)
+            message(FATAL_ERROR "canokey: AAGUID not found in ${src}")
+        endif()
+        file(WRITE ${dst} "${patched}")
+    endfunction()
+    copy_replacing(${CK}/applets/ctap/ctap.c ${CK_GEN}/ctap.c
+        "static const uint8_t aaguid\\[\\] = {[^}]*};"
+        "static const uint8_t aaguid[] = {${aaguid_c}};")
+    copy_replacing(${CK}/scripts/gen_ctap_get_info.py ${CK_GEN}/gen_ctap_get_info.py
+        "AAGUID = bytes\\(\\[[^]]*\\]\\)"
+        "AAGUID = bytes.fromhex('${aaguid_hex}')")
+
     idf_build_get_property(python PYTHON)
     execute_process(
-        COMMAND ${python} ${CK}/scripts/gen_ctap_get_info.py
+        COMMAND ${python} ${CK_GEN}/gen_ctap_get_info.py
             --headers ${CK}/applets/ctap/ctap-internal.h ${CK}/applets/ctap/cose-key.h ${CK_GEN}/firmware-version.h
             --restrict-algorithms 1
             --credential-id-size 70
@@ -90,14 +108,15 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
     ENABLE_IFACE_KBDHID=0
     CTAP_RESTRICT_ALGORITHMS=1
     USE_MBEDCRYPTO
-    MBEDTLS_DECLARE_PRIVATE_IDENTIFIERS
+    MBEDTLS_DECLARE_PRIVATE_IDENTIFIERS=
     MBEDTLS_ECP_DP_ED25519=MBEDTLS_ECP_DP_NONE
     CBOR_NO_FLOATING_POINT
     CBOR_STATIC_DEFINE
     ESP_LITTLEFS_RAW_API
-    DEBUG_OUTPUT
 )
-target_compile_options(${COMPONENT_LIB} PRIVATE -Wno-unused-function -Wno-unused-variable -Wno-format -Wno-error)
+target_compile_options(${COMPONENT_LIB} PRIVATE -include ${CMAKE_CURRENT_LIST_DIR}/port/canokey_compat.h)
+# Upstream code warns under IDF's flags; only the port is held to -Werror.
+set_source_files_properties(${CK_SRCS} PROPERTIES COMPILE_OPTIONS "-Wno-error;-Wno-unused-function;-Wno-unused-variable")
 
 # port/ctap_request.c peeks at each CTAP command before canokey processes it;
 # port/canokey_port.c replaces the user presence wait.
