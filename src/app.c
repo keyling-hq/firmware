@@ -2,11 +2,17 @@
 #include "app.h"
 #include "ble_link.h"
 #include "bsp/tdongle.h"
+#include "canokey_port.h"
 #include "datafs.h"
 #include "esp_attr.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include <stdio.h>
+#include "esp_core_dump.h"
+#include "esp_heap_caps.h"
 #include "esp_system.h"
+#include "esp_timer.h"
+#include "fw_info.h"
 #include "keymap.h"
 #include "keystore.h"
 #include "ota_update.h"
@@ -94,6 +100,54 @@ static void set_speed(settings_t *settings, int index)
     }
 }
 
+/* The last crash, saved to flash by the panic handler: decode the PCs with addr2line on the ELF. */
+static void log_crash_report(void)
+{
+    if (esp_core_dump_image_check() != ESP_OK) {
+        ESP_LOGI(TAG, "no saved crash");
+        return;
+    }
+    static esp_core_dump_summary_t summary;
+    if (esp_core_dump_get_summary(&summary) != ESP_OK) {
+        ESP_LOGW(TAG, "saved crash unreadable");
+        return;
+    }
+    ESP_LOGW(TAG, "last crash: task %s, pc 0x%08lx, cause %lu, vaddr 0x%08lx", summary.exc_task,
+             (unsigned long)summary.exc_pc, (unsigned long)summary.ex_info.exc_cause,
+             (unsigned long)summary.ex_info.exc_vaddr);
+    char line[16 * 11 + 1];
+    size_t len = 0;
+    for (uint32_t i = 0; i < summary.exc_bt_info.depth && i < 16; i++) {
+        len += snprintf(line + len, sizeof(line) - len, " 0x%08lx", (unsigned long)summary.exc_bt_info.bt[i]);
+    }
+    line[len] = '\0';
+    ESP_LOGW(TAG, "backtrace%s:%s", summary.exc_bt_info.corrupted ? " (corrupted)" : "", line);
+}
+
+static void log_diagnostics(void)
+{
+    keystore_status_t ks;
+    keystore_status(&ks);
+    settings_t settings;
+    settings_get(&settings);
+    ESP_LOGI(TAG, "---- diagnostics ----");
+    ESP_LOGI(TAG, "firmware %s, reset reason %d, up %llu s", fw_info_version(), esp_reset_reason(),
+             esp_timer_get_time() / 1000000);
+    ESP_LOGI(TAG, "keys: %s root, secure boot %d, flash encryption %d", ks.root == KEYSTORE_ROOT_EFUSE ? "efuse" : "dev",
+             ks.secure_boot, ks.flash_encryption);
+    ESP_LOGI(TAG, "heap: %u free, %u minimum, %u largest block", (unsigned)esp_get_free_heap_size(),
+             (unsigned)esp_get_minimum_free_heap_size(),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT));
+    ESP_LOGI(TAG, "usb: mounted %d, caps lock %d; ble: state %d; typing %d", s_usb_mounted,
+             (usb_hid_keyboard_leds() & 0x02) != 0, s_ble_state, s_typing);
+    ESP_LOGI(TAG, "settings: layout %s, press %u ms, release %u ms, name %s", settings.layout,
+             settings.key_press_ms, settings.key_release_ms, settings.ble_name);
+    canokey_log_diagnostics();
+    ui_set_fido_status(canokey_status());
+    log_crash_report();
+    ESP_LOGI(TAG, "---------------------");
+}
+
 static void ui_action_cb(ui_action_t action, int arg)
 {
     switch (action) {
@@ -127,6 +181,12 @@ static void ui_action_cb(ui_action_t action, int arg)
         break;
     case UI_ACTION_FACTORY_RESET:
         app_factory_reset_request();
+        break;
+    case UI_ACTION_FIDO_CONFIRM:
+        canokey_confirm_presence();
+        break;
+    case UI_ACTION_LOG_DIAGNOSTICS:
+        log_diagnostics();
         break;
     }
 }
@@ -302,6 +362,26 @@ static void ble_bridge_abort_cb(void *ctx)
     protocol_abort();
 }
 
+static void fido_presence_cb(bool waiting, canokey_request_t kind, const char *rp_id, bool approved, void *ctx)
+{
+    static const ui_fido_request_t ui_kinds[] = {
+        [CANOKEY_REQUEST_OTHER] = UI_FIDO_OTHER,
+        [CANOKEY_REQUEST_REGISTER] = UI_FIDO_REGISTER,
+        [CANOKEY_REQUEST_SIGN_IN] = UI_FIDO_SIGN_IN,
+        [CANOKEY_REQUEST_SELECT] = UI_FIDO_SELECT,
+        [CANOKEY_REQUEST_RESET] = UI_FIDO_RESET,
+    };
+    if (waiting) {
+        ESP_LOGI(TAG, "fido: request %d for '%s' waits for presence", kind, rp_id);
+        status_led_attention(STATUS_LED_ATTENTION_FIDO);
+        ui_show_fido_request(ui_kinds[kind], rp_id);
+    } else {
+        ESP_LOGI(TAG, "fido: request %s", approved ? "approved" : "not approved");
+        status_led_attention(STATUS_LED_ATTENTION_NONE);
+        ui_show_fido_done(approved);
+    }
+}
+
 esp_err_t app_start(void)
 {
     ESP_RETURN_ON_ERROR(keystore_init(), TAG, "keystore");
@@ -318,6 +398,12 @@ esp_err_t app_start(void)
     ESP_RETURN_ON_ERROR(typer_start(typer_event_cb, NULL), TAG, "typer");
     apply_settings();
     ESP_RETURN_ON_ERROR(usb_hid_start(usb_mount_cb, NULL), TAG, "usb");
+    /* The security key is optional: a failure there must not take the keyboard down with it. */
+    esp_err_t fido_err = canokey_start(fido_presence_cb, NULL);
+    if (fido_err != ESP_OK) {
+        ESP_LOGE(TAG, "security key unavailable: %s", esp_err_to_name(fido_err));
+    }
+    ui_set_fido_status(canokey_status());
 
     static const protocol_handlers_t protocol_handlers = {
         .send = proto_send,

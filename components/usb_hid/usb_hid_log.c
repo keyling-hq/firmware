@@ -44,3 +44,17 @@ esp_err_t usb_hid_consumer_report(uint16_t usage)
     ESP_LOGI(TAG, "consumer usage=%04x", usage);
     return ESP_OK;
 }
+
+void usb_hid_fido_set_rx_cb(usb_hid_fido_rx_cb_t cb, void *ctx)
+{
+}
+
+bool usb_hid_fido_ready(void)
+{
+    return false;
+}
+
+esp_err_t usb_hid_fido_send(const uint8_t report[USB_HID_FIDO_REPORT_SIZE])
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}

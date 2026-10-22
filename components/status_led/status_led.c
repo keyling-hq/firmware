@@ -14,6 +14,8 @@ static const char *TAG = "status_led";
 #define FADE_MS             600
 #define ERROR_BLINKS        3
 #define ERROR_HALF_MS       200
+#define DOUBLE_BLINK_PERIOD_MS  1200
+#define DOUBLE_BLINK_ON_MS      120
 
 typedef struct {
     uint8_t r, g, b;
@@ -21,6 +23,7 @@ typedef struct {
 
 static TaskHandle_t s_task;
 static volatile status_led_pattern_t s_pattern;
+static volatile status_led_attention_t s_attention;
 
 /* Returns the color for the pattern at elapsed ms, and whether the pattern has finished. */
 static rgb_t render(status_led_pattern_t pattern, uint32_t ms, bool *done)
@@ -61,22 +64,53 @@ static rgb_t render(status_led_pattern_t pattern, uint32_t ms, bool *done)
     }
 }
 
+/* Attention patterns repeat until cleared. */
+static rgb_t render_attention(status_led_attention_t attention, uint32_t ms)
+{
+    switch (attention) {
+    case STATUS_LED_ATTENTION_FIDO: {
+        uint32_t phase = ms % DOUBLE_BLINK_PERIOD_MS;
+        bool on = phase < DOUBLE_BLINK_ON_MS ||
+                  (phase >= 2 * DOUBLE_BLINK_ON_MS && phase < 3 * DOUBLE_BLINK_ON_MS);
+        return on ? (rgb_t){ PEAK, 0, PEAK } : (rgb_t){ 0 };
+    }
+    case STATUS_LED_ATTENTION_NONE:
+    default:
+        return (rgb_t){ 0 };
+    }
+}
+
+#define CHANGED_BASE        BIT0
+#define CHANGED_ATTENTION   BIT1
+
 static void led_task(void *arg)
 {
     status_led_pattern_t pattern = STATUS_LED_OFF;
-    TickType_t start = xTaskGetTickCount();
+    status_led_attention_t attention = STATUS_LED_ATTENTION_NONE;
+    TickType_t base_start = xTaskGetTickCount();
+    TickType_t attention_start = base_start;
     rgb_t shown = { 0 };
     bool idle = true;
 
     for (;;) {
-        bool changed = ulTaskNotifyTake(pdTRUE, idle ? portMAX_DELAY : pdMS_TO_TICKS(TICK_MS)) > 0;
-        if (changed) {
+        uint32_t changed = 0;
+        xTaskNotifyWait(0, UINT32_MAX, &changed, idle ? portMAX_DELAY : pdMS_TO_TICKS(TICK_MS));
+        TickType_t now = xTaskGetTickCount();
+        if (changed & CHANGED_BASE) {
             pattern = s_pattern;
-            start = xTaskGetTickCount();
+            base_start = now;
+        }
+        if (changed & CHANGED_ATTENTION) {
+            attention = s_attention;
+            attention_start = now;
         }
 
         bool done;
-        rgb_t c = render(pattern, pdTICKS_TO_MS(xTaskGetTickCount() - start), &done);
+        rgb_t c = render(pattern, pdTICKS_TO_MS(now - base_start), &done);
+        if (attention != STATUS_LED_ATTENTION_NONE) {
+            c = render_attention(attention, pdTICKS_TO_MS(now - attention_start));
+            done = false;
+        }
         if (c.r != shown.r || c.g != shown.g || c.b != shown.b) {
             bsp_led_set(c.r, c.g, c.b);
             shown = c;
@@ -96,6 +130,14 @@ void status_led_set(status_led_pattern_t pattern)
 {
     s_pattern = pattern;
     if (s_task) {
-        xTaskNotifyGive(s_task);
+        xTaskNotify(s_task, CHANGED_BASE, eSetBits);
+    }
+}
+
+void status_led_attention(status_led_attention_t attention)
+{
+    s_attention = attention;
+    if (s_task) {
+        xTaskNotify(s_task, CHANGED_ATTENTION, eSetBits);
     }
 }

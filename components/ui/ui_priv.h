@@ -32,6 +32,8 @@ void ui_emit(ui_action_t action, int arg);
 /** Leaves the current app (if any) and returns to the launcher. */
 void ui_app_exit(void);
 
+const char *ui_fido_status(void);
+
 /** The phone is typing: apps must not produce host input meanwhile. */
 bool ui_host_busy(void);
 
@@ -50,6 +52,7 @@ void ui_submenu_cb(lv_event_t *e);
 
 #define UI_HOLD_EXIT_MS     1000
 #define UI_HOLD_RESET_MS    3000
+#define UI_HOLD_CONFIRM_MS  700
 
 /**
  * A menu item that fills up while held and runs cb once held for duration_ms (counted from when
