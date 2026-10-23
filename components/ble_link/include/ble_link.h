@@ -21,6 +21,10 @@ typedef struct {
     ble_link_state_t state;
     bool bonded;
     bool pairing_window;
+    /** The passkey the next pairing will use; renewed when the window opens and after every attempt. */
+    uint32_t passkey;
+    /** Identity address, most significant byte first. */
+    uint8_t address[6];
 } ble_link_status_t;
 
 /* All callbacks run in the NimBLE host task (or the caller's task for API-triggered changes). */
@@ -42,7 +46,8 @@ esp_err_t ble_link_start(const char *device_name, const ble_link_callbacks_t *ca
 
 /**
  * While no phone is bonded, pairing is always allowed. Once bonded, a new phone may only pair
- * while the window is open; the new bond replaces the old one.
+ * while the window is open; the new bond replaces the old one. The window opens by itself at
+ * startup while no phone is bonded.
  */
 void ble_link_pairing_window(bool open);
 

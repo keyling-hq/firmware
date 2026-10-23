@@ -55,6 +55,7 @@ static uint16_t s_tx_handle;
 static uint16_t s_conn = BLE_HS_CONN_HANDLE_NONE;
 static volatile bool s_subscribed;
 static volatile bool s_passkey_shown;
+static volatile uint32_t s_passkey;
 static volatile bool s_window_open;
 static volatile ble_link_state_t s_state = BLE_LINK_ADVERTISING;
 static esp_timer_handle_t s_window_timer;
@@ -77,19 +78,33 @@ static bool pairing_allowed(void)
 static void report(void)
 {
     if (s_cb.status) {
-        const ble_link_status_t status = {
+        ble_link_status_t status = {
             .state = s_state,
             .bonded = is_bonded(),
             .pairing_window = s_window_open,
+            .passkey = s_passkey,
         };
+        uint8_t addr[6];
+        if (ble_hs_id_copy_addr(s_own_addr_type, addr, NULL) == 0) {
+            for (int i = 0; i < 6; i++) {
+                status.address[i] = addr[5 - i];
+            }
+        }
         s_cb.status(&status, s_cb_ctx);
     }
+}
+
+/* A passkey is never reused: each failed attempt tells an attacker part of it. */
+static void new_passkey(void)
+{
+    s_passkey = esp_random() % PASSKEY_MAX;
 }
 
 static void hide_passkey(void)
 {
     if (s_passkey_shown) {
         s_passkey_shown = false;
+        new_passkey();
         if (s_cb.passkey) {
             s_cb.passkey(0, false, s_cb_ctx);
         }
@@ -322,7 +337,7 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
         }
         struct ble_sm_io io = {
             .action = BLE_SM_IOACT_DISP,
-            .passkey = esp_random() % PASSKEY_MAX,
+            .passkey = s_passkey,
         };
         s_passkey_shown = true;
         if (s_cb.passkey) {
@@ -421,7 +436,11 @@ static void on_sync(void)
     forget_evt_subscription(NULL);
     ble_hs_util_ensure_addr(0);
     ble_hs_id_infer_auto(0, &s_own_addr_type);
+    new_passkey();
     advertise();
+    if (!is_bonded()) {
+        ble_link_pairing_window(true);
+    }
     report();
 }
 
@@ -482,6 +501,7 @@ void ble_link_pairing_window(bool open)
     s_window_open = open;
     esp_timer_stop(s_window_timer);
     if (open) {
+        new_passkey();
         esp_timer_start_once(s_window_timer, BLE_LINK_PAIRING_WINDOW_S * 1000000ULL);
     }
     ESP_LOGI(TAG, "pairing window %s", open ? "open" : "closed");

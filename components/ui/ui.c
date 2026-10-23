@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 #include "ui.h"
 #include "ui_input.h"
 #include "ui_priv.h"
@@ -6,6 +7,8 @@
 #include "esp_lvgl_port.h"
 #include "esp_log.h"
 #include "settings.h"
+#include "src/libs/qrcode/qrcodegen.h"
+#include "src/misc/cache/instance/lv_image_cache.h"
 
 static const char *TAG = "ui";
 
@@ -48,6 +51,8 @@ static char s_fido_rp_id[64];
 static bool s_fido_result_shown;
 static bool s_fido_approved;
 static bool s_pairing;
+static uint32_t s_pairing_passkey;
+static char s_pairing_qr[UI_PAIRING_QR_MAX];
 static bool s_passkey_shown;
 static uint32_t s_passkey;
 static bool s_updating;
@@ -128,12 +133,20 @@ static void navigate_async_cb(void *arg)
     }
 }
 
-void ui_navigate(ui_screen_fn_t fn)
+static void navigate(ui_screen_fn_t fn)
 {
     if (!s_pending_nav) {
         lv_async_call(navigate_async_cb, NULL);
     }
     s_pending_nav = fn;
+}
+
+/* An overlay stays until its state ends: menus navigating in the meantime must not replace it. */
+void ui_navigate(ui_screen_fn_t fn)
+{
+    if (s_overlay == OVERLAY_NONE) {
+        navigate(fn);
+    }
 }
 
 static void item_key_cb(lv_event_t *e)
@@ -508,15 +521,90 @@ static void show_typing(void)
     ui_menu_end(overlay_begin("Typing...", "Hold to abort", UI_ACTION_ABORT_TYPING), NULL);
 }
 
+/* Version 1 (21x21) holds the pairing text at level L; 3 px modules and a 2-module quiet zone fit 80 px. */
+#define QR_VERSION      1
+#define QR_MODULES      21
+#define QR_SCALE        3
+#define QR_QUIET        2
+#define QR_PX           ((QR_MODULES + 2 * QR_QUIET) * QR_SCALE)
+
+LV_DRAW_BUF_DEFINE_STATIC(s_qr_buf, QR_PX, QR_PX, LV_COLOR_FORMAT_I1);
+
+static lv_obj_t *qr_create(lv_obj_t *parent, const char *text)
+{
+    uint8_t qr[qrcodegen_BUFFER_LEN_FOR_VERSION(QR_VERSION)];
+    uint8_t tmp[qrcodegen_BUFFER_LEN_FOR_VERSION(QR_VERSION)];
+    if (!qrcodegen_encodeText(text, tmp, qr, qrcodegen_Ecc_LOW, QR_VERSION, QR_VERSION, qrcodegen_Mask_AUTO,
+                              false)) {
+        ESP_LOGE(TAG, "pairing code does not fit a version %d QR code", QR_VERSION);
+        return NULL;
+    }
+    lv_image_cache_drop(&s_qr_buf);
+    LV_DRAW_BUF_INIT_STATIC(s_qr_buf);
+    lv_obj_t *canvas = lv_canvas_create(parent);
+    lv_canvas_set_draw_buf(canvas, &s_qr_buf);
+    lv_canvas_set_palette(canvas, 0, lv_color_to_32(lv_color_white(), LV_OPA_COVER));
+    lv_canvas_set_palette(canvas, 1, lv_color_to_32(lv_color_black(), LV_OPA_COVER));
+
+    /* I1 pixels after the 2-entry palette, most significant bit first; 1 selects black. */
+    uint8_t *px = s_qr_buf.data + 2 * sizeof(lv_color32_t);
+    uint32_t stride = s_qr_buf.header.stride;
+    memset(px, 0, stride * QR_PX);
+    for (int y = 0; y < QR_PX; y++) {
+        for (int x = 0; x < QR_PX; x++) {
+            int mx = x / QR_SCALE - QR_QUIET;
+            int my = y / QR_SCALE - QR_QUIET;
+            if (qrcodegen_getModule(qr, mx, my)) {
+                px[y * stride + x / 8] |= 0x80 >> (x % 8);
+            }
+        }
+    }
+    return canvas;
+}
+
+/* QR code for the hub app, digits for typing into the phone's own pairing dialog. */
 static void show_pairing(void)
 {
     settings_t settings;
     settings_get(&settings);
-    lv_obj_t *list = overlay_begin("Pair new phone", "Hold to cancel", UI_ACTION_CANCEL_PAIRING);
-    lv_obj_t *info = lv_label_create(list);
-    lv_label_set_text_fmt(info, "Connect to %s", settings.ble_name);
-    lv_obj_move_to_index(info, 0);
-    ui_menu_end(list, NULL);
+
+    lv_obj_t *scr = screen_begin(NULL);
+    lv_obj_set_flex_flow(scr, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(scr, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    qr_create(scr, s_pairing_qr);
+
+    lv_obj_t *col = lv_obj_create(scr);
+    lv_obj_set_height(col, lv_pct(100));
+    lv_obj_set_flex_grow(col, 1);
+    lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(col, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_all(col, 0, 0);
+    lv_obj_set_style_pad_row(col, 0, 0);
+    lv_obj_set_style_border_width(col, 0, 0);
+    lv_obj_set_scrollbar_mode(col, LV_SCROLLBAR_MODE_OFF);
+
+    lv_obj_t *name = lv_label_create(col);
+    lv_obj_set_width(name, lv_pct(100));
+    lv_obj_set_style_text_font(name, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_align(name, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(name, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
+    lv_label_set_text(name, settings.ble_name);
+
+    for (int half = 0; half < 2; half++) {
+        lv_obj_t *digits = lv_label_create(col);
+        lv_obj_set_style_text_font(digits, &lv_font_montserrat_24, 0);
+        lv_label_set_text_fmt(digits, "%03lu", (unsigned long)(half ? s_pairing_passkey % 1000
+                                                                    : s_pairing_passkey / 1000));
+    }
+
+    /* Invisible focus target: hold or double click cancels, as on the other overlays. */
+    lv_obj_t *cancel = lv_button_create(col);
+    lv_obj_add_flag(cancel, LV_OBJ_FLAG_FLOATING);
+    lv_obj_set_size(cancel, 0, 0);
+    lv_obj_set_style_opa(cancel, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_ANY);
+    lv_obj_add_event_cb(cancel, overlay_click_cb, LV_EVENT_PRESSED, (void *)(intptr_t)UI_ACTION_CANCEL_PAIRING);
+    lv_obj_add_event_cb(cancel, overlay_key_cb, LV_EVENT_KEY, (void *)(intptr_t)UI_ACTION_CANCEL_PAIRING);
+    screen_end(scr, cancel);
 }
 
 static void show_passkey(void)
@@ -579,7 +667,7 @@ static void update_overlay(void)
         [OVERLAY_PASSKEY] = show_passkey,
         [OVERLAY_UPDATE] = show_update,
     };
-    ui_navigate(screens[want]);
+    navigate(screens[want]);
 }
 
 /* ---- public -------------------------------------------------------------- */
@@ -617,12 +705,12 @@ const char *ui_fido_status(void)
 }
 
 /* Waits for the lock: dropping these would leave a request without its prompt. */
-#define FIDO_LOCK_MS        200
+#define PROMPT_LOCK_MS      200
 #define FIDO_RESULT_MS      1500
 
 void ui_show_fido_request(ui_fido_request_t kind, const char *rp_id)
 {
-    if (!lvgl_port_lock(FIDO_LOCK_MS)) {
+    if (!lvgl_port_lock(PROMPT_LOCK_MS)) {
         return;
     }
     s_fido_kind = kind;
@@ -635,7 +723,7 @@ void ui_show_fido_request(ui_fido_request_t kind, const char *rp_id)
 
 void ui_show_fido_done(bool approved)
 {
-    if (!lvgl_port_lock(FIDO_LOCK_MS)) {
+    if (!lvgl_port_lock(PROMPT_LOCK_MS)) {
         return;
     }
     s_fido_waiting = false;
@@ -657,13 +745,19 @@ void ui_show_typing(bool typing)
     lvgl_port_unlock();
 }
 
-void ui_show_pairing(bool open)
+void ui_show_pairing(bool open, uint32_t passkey, const char *qr_text)
 {
-    if (!lvgl_port_lock(0)) {
+    if (!lvgl_port_lock(PROMPT_LOCK_MS)) {
         return;
     }
+    bool changed = passkey != s_pairing_passkey || strcmp(qr_text, s_pairing_qr) != 0;
     s_pairing = open;
+    s_pairing_passkey = passkey;
+    snprintf(s_pairing_qr, sizeof(s_pairing_qr), "%s", qr_text);
     update_overlay();
+    if (changed && s_overlay == OVERLAY_PAIRING) {
+        navigate(show_pairing);
+    }
     lvgl_port_unlock();
 }
 
@@ -681,7 +775,7 @@ void ui_show_update(bool active, uint8_t percent)
 
 void ui_show_passkey(uint32_t passkey, bool show)
 {
-    if (!lvgl_port_lock(0)) {
+    if (!lvgl_port_lock(PROMPT_LOCK_MS)) {
         return;
     }
     s_passkey = passkey;

@@ -59,7 +59,9 @@ void ui_show_fido_done(bool approved);
 void ui_set_usb_state(bool mounted);
 void ui_set_ble_state(ui_ble_state_t state);
 void ui_show_typing(bool typing);
-void ui_show_pairing(bool open);
+#define UI_PAIRING_QR_MAX   32
+/** The pairing window: the passkey as digits and as a QR code holding qr_text. */
+void ui_show_pairing(bool open, uint32_t passkey, const char *qr_text);
 void ui_show_passkey(uint32_t passkey, bool show);
 
 #ifdef __cplusplus

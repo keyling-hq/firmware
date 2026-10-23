@@ -166,8 +166,8 @@ static void ui_action_cb(ui_action_t action, int arg)
         protocol_abort();
         break;
     case UI_ACTION_PAIR_NEW:
-        /* Only one connection at a time: the current phone has to make room for the new one. */
-        ble_link_disconnect();
+        /* The old phone would reconnect at once with its bond: it is forgotten first. */
+        ble_link_forget();
         ble_link_pairing_window(true);
         break;
     case UI_ACTION_CANCEL_PAIRING:
@@ -332,7 +332,13 @@ static void ble_status_cb(const ble_link_status_t *status, void *ctx)
         status_led_set(led);
     }
     ui_set_ble_state(ui_ble_state_for(status));
-    ui_show_pairing(status->pairing_window);
+
+    /* Read by the hub app: "KL1:<address, 12 hex digits>:<passkey, 6 digits>". */
+    const uint8_t *a = status->address;
+    char qr[UI_PAIRING_QR_MAX];
+    snprintf(qr, sizeof(qr), "KL1:%02X%02X%02X%02X%02X%02X:%06lu", a[0], a[1], a[2], a[3], a[4], a[5],
+             (unsigned long)status->passkey);
+    ui_show_pairing(status->pairing_window, status->passkey, qr);
 }
 
 static void ble_passkey_cb(uint32_t passkey, bool show, void *ctx)
