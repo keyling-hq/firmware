@@ -21,6 +21,7 @@ The PC must be bonded with the dongle. The dongle has a single owner: pair it wi
 
 import argparse
 import asyncio
+import contextlib
 import hashlib
 import shlex
 import struct
@@ -68,10 +69,10 @@ US_STROKES.update({chr(ord("A") + i): (SHIFT, 0x04 + i, STROKE_CAPS) for i in ra
 US_STROKES.update({str(d): (0, 0x1E + d - 1, 0) for d in range(1, 10)})
 US_STROKES["0"] = (0, 0x27, 0)
 for plain, shifted, key in zip("-=[]\\;'`,./", "_+{}|:\"~<>?",
-                               (0x2D, 0x2E, 0x2F, 0x30, 0x31, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38)):
+                               (0x2D, 0x2E, 0x2F, 0x30, 0x31, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38), strict=True):
     US_STROKES[plain] = (0, key, 0)
     US_STROKES[shifted] = (SHIFT, key, 0)
-for ch, key in zip("!@#$%^&*()", range(0x1E, 0x28)):
+for ch, key in zip("!@#$%^&*()", range(0x1E, 0x28), strict=True):
     US_STROKES[ch] = (SHIFT, key, 0)
 
 MEDIA = {
@@ -271,9 +272,8 @@ async def ota(bridge, path):
     for offset in range(0, len(image), OTA_CHUNK):
         req = pb.Request(ota_data=pb.OtaData(offset=offset, data=image[offset:offset + OTA_CHUNK]))
         in_flight.append(asyncio.create_task(bridge.request(req)))
-        if len(in_flight) >= OTA_IN_FLIGHT:
-            if await in_flight.pop(0) != pb.RESULT_OK:
-                raise CommandError("\nupdate failed while sending data")
+        if len(in_flight) >= OTA_IN_FLIGHT and await in_flight.pop(0) != pb.RESULT_OK:
+            raise CommandError("\nupdate failed while sending data")
         sent = min(offset + OTA_CHUNK, len(image))
         print(f"\r  {sent * 100 // len(image)}% ({sent}/{len(image)} B)", end="")
     if any(result != pb.RESULT_OK for result in await asyncio.gather(*in_flight)):
@@ -439,7 +439,7 @@ async def shell(bridge):
                 await execute(bridge, a)
             except CommandError as e:
                 print(e)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 print(f"{a.command}: timed out")
             except Exception as e:
                 print(f"{a.command}: {type(e).__name__}: {e}")
@@ -478,14 +478,14 @@ async def run(args):
             await bridge.start()
         except BleakError:
             raise SystemExit("the dongle dropped the connection: this PC isn't paired with it. Open "
-                             "'Pair new phone' on the dongle and run again with --pair.")
+                             "'Pair new phone' on the dongle and run again with --pair.") from None
         if args.command == "shell":
             await shell(bridge)
         else:
             try:
                 await execute(bridge, args)
             except CommandError as e:
-                raise SystemExit(str(e))
+                raise SystemExit(str(e)) from None
 
 
 def main():
@@ -498,10 +498,8 @@ def main():
     add_commands(sub)
     sub.add_parser("shell", help="interactive session over a single connection")
 
-    try:
+    with contextlib.suppress(KeyboardInterrupt):
         asyncio.run(run(ap.parse_args()))
-    except KeyboardInterrupt:
-        pass
 
 
 if __name__ == "__main__":

@@ -1,0 +1,21 @@
+name: Set up the firmware build
+description: Nested submodules the build needs, Python, PlatformIO and its cached packages.
+
+runs:
+  using: composite
+  steps:
+    - name: canokey-core submodules
+      shell: bash
+      run: git -C components/canokey/canokey-core submodule update --init --depth 1 canokey-crypto tinycbor
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+    - uses: actions/cache@v4
+      with:
+        path: |
+          ~/.platformio
+          managed_components
+        key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini', 'dependencies.lock') }}
+    - name: Install PlatformIO
+      shell: bash
+      run: pip install platformio==6.2.0

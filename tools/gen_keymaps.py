@@ -112,6 +112,7 @@ class XkbSymbols:
     def resolve(self, ref):
         """Return {key name: [keysym per level]} for 'file(section)'."""
         m = re.fullmatch(r"(\w+)(?:\((\w+)\))?", ref)
+        assert m, f"bad include reference {ref!r}"
         sections, default = self._sections(m.group(1))
         body = sections[m.group(2) or default]
         keys = {}

@@ -10,6 +10,9 @@ Runs on the LilyGo T-Dongle-S3 (ESP32-S3). It is also a FIDO2/U2F security key, 
 - Protocol: `proto/` is the [keyling-hq/protocol](https://github.com/keyling-hq/protocol)
   submodule; after updating it, regenerate with `tools/gen_proto.py`. Reference client in
   `tools/client.py`.
+- Checks (also run by CI): `tools/.venv/Scripts/ruff check .` and `tools/.venv/Scripts/pyright`, with
+  `tools/requirements-dev.txt` installed in the venv.
+- Releases: pushing a tag `vX.Y.Z` builds the `hid` firmware and publishes a GitHub release.
 
 ## License
 

@@ -34,7 +34,7 @@ def main():
         x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, "Authenticator Attestation"),
         x509.NameAttribute(NameOID.COMMON_NAME, "Keyling Development Attestation"),
     ])
-    now = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
+    now = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
     cert = (
         x509.CertificateBuilder()
         .subject_name(name)

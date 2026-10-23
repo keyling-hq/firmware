@@ -3,7 +3,7 @@
 
     tools/.venv/Scripts/python tools/gen_proto.py
 
-Outputs components/protocol/bridge.pb.{c,h} (nanopb) and tools/bridge_pb2.py.
+Outputs components/protocol/bridge.pb.{c,h} (nanopb) and tools/bridge_pb2.py (+ .pyi stubs).
 """
 
 import subprocess
@@ -28,6 +28,7 @@ def main():
     run("-m", "grpc_tools.protoc",
         "-I", str(PROTO_DIR),
         "--python_out", str(ROOT / "tools"),
+        "--pyi_out", str(ROOT / "tools"),
         str(PROTO))
 
 

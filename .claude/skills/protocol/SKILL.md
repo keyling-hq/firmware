@@ -10,7 +10,9 @@ commit of it; the Android app pins its own. `bridge.proto` comments are the norm
 
 Generated code is committed and must never be edited by hand:
 - `components/protocol/bridge.pb.c`, `bridge.pb.h` (nanopb)
-- `tools/bridge_pb2.py` (Python, for `tools/client.py`)
+- `tools/bridge_pb2.py` and its type stubs `tools/bridge_pb2.pyi` (Python, for `tools/client.py`)
+
+CI regenerates them and fails if the committed files differ.
 
 Regenerate with `tools/.venv/Scripts/python tools/gen_proto.py`. The venv is gitignored; create it
 with `py -3 -m venv tools/.venv` and `tools/.venv/Scripts/python -m pip install -r tools/requirements.txt`.

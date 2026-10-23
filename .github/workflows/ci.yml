@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tools:
+    name: Lint, type check, generated code
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          python -m venv tools/.venv
+          tools/.venv/bin/pip install -r tools/requirements-dev.txt
+      - name: Lint
+        run: tools/.venv/bin/ruff check .
+      - name: Type check
+        run: tools/.venv/bin/pyright
+      - name: Generated protocol code matches proto/
+        run: |
+          tools/.venv/bin/python tools/gen_proto.py
+          git diff --exit-code -- components/protocol tools/bridge_pb2.py tools/bridge_pb2.pyi
+
+  build:
+    name: Build (${{ matrix.env }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [dev, hid]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-build
+      - name: Build
+        run: pio run -e ${{ matrix.env }}
+      - uses: actions/upload-artifact@v4
+        if: matrix.env == 'hid'
+        with:
+          name: firmware-hid
+          path: |
+            .pio/build/hid/firmware.bin
+            .pio/build/hid/firmware.elf

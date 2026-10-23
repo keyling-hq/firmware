@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-build
+      - name: Build
+        run: pio run -e hid
+      - name: Package
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          out=dist
+          mkdir "$out"
+          build=.pio/build/hid
+          version=$(git describe --tags --always --dirty)
+          [ "$version" = "$TAG" ] || { echo "version $version does not match tag $TAG"; exit 1; }
+          cp "$build/firmware.bin" "$out/keyling-$TAG.bin"
+          cp "$build/firmware.elf" "$out/keyling-$TAG.elf"
+          pio pkg exec --package tool-esptoolpy -- esptool.py --chip esp32s3 merge_bin \
+            -o "$out/keyling-$TAG-full.bin" \
+            0x0 "$build/bootloader.bin" 0x8000 "$build/partitions.bin" \
+            0xf000 "$build/ota_data_initial.bin" 0x20000 "$build/firmware.bin"
+          (cd "$out" && sha256sum * > SHA256SUMS)
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          prerelease=$([[ "$TAG" == *-* ]] && echo --prerelease || true)
+          gh release create "$TAG" dist/* --verify-tag --generate-notes $prerelease --notes "$(cat <<EOF
+          - \`keyling-$TAG.bin\`: update over Bluetooth (hub app or \`tools/client.py ota\`).
+          - \`keyling-$TAG-full.bin\`: first install over USB at offset 0x0. Erases pairing and settings.
+          - \`keyling-$TAG.elf\`: symbols for reading crash reports.
+          EOF
+          )"

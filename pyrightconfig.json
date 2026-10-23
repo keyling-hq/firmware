@@ -1,0 +1,13 @@
+{
+  "include": [
+    "tools"
+  ],
+  "exclude": [
+    "tools/.venv",
+    "tools/bridge_pb2.py"
+  ],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "standard",
+  "venvPath": "tools",
+  "venv": ".venv"
+}

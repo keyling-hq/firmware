@@ -8,3 +8,4 @@ tools/.venv/
 __pycache__/
 local/
 components/canokey/generated/
+.ruff_cache/
