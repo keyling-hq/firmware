@@ -1,5 +1,6 @@
 #include <string.h>
 #include "ble_link.h"
+#include "esp_bt.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_check.h"
@@ -506,6 +507,17 @@ void ble_link_pairing_window(bool open)
     }
     ESP_LOGI(TAG, "pairing window %s", open ? "open" : "closed");
     report();
+}
+
+bool ble_link_tx_power_dbm(int *dbm)
+{
+    esp_power_level_t level = esp_ble_tx_power_get(ESP_BLE_PWR_TYPE_DEFAULT);
+    if (level > ESP_PWR_LVL_P20) {
+        return false;
+    }
+    /* 3 dB steps from -24 dBm; the top level is +20, not +21. */
+    *dbm = level == ESP_PWR_LVL_P20 ? 20 : -24 + 3 * (int)level;
+    return true;
 }
 
 esp_err_t ble_link_forget(void)

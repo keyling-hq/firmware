@@ -9,6 +9,8 @@ extern "C" {
 #endif
 
 /* LCD: ST7735, 0.96" 160x80, SPI */
+#define BSP_BOARD_NAME          "LilyGo T-Dongle-S3"
+
 #define BSP_LCD_SPI_HOST        SPI2_HOST
 #define BSP_LCD_MOSI            3
 #define BSP_LCD_SCLK            5

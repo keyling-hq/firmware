@@ -42,6 +42,7 @@ static void show(void)
 }
 
 const ui_app_t ui_app_jiggler = {
+    .id = "jiggler",
     .name = "Jiggler",
     .icon = LV_SYMBOL_SHUFFLE,
     .start = start,

@@ -64,6 +64,9 @@ void ui_show_typing(bool typing);
 void ui_show_pairing(bool open, uint32_t passkey, const char *qr_text);
 void ui_show_passkey(uint32_t passkey, bool show);
 
+/** The on-device apps in launcher order; false past the last one. Callable from any task. */
+bool ui_app_info(size_t index, const char **id, const char **name);
+
 #ifdef __cplusplus
 }
 #endif

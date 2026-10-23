@@ -421,6 +421,16 @@ static void show_launcher(void)
     screen_end(scr, focus);
 }
 
+bool ui_app_info(size_t index, const char **id, const char **name)
+{
+    if (index >= APP_COUNT) {
+        return false;
+    }
+    *id = s_apps[index]->id;
+    *name = s_apps[index]->name;
+    return true;
+}
+
 /* The running app's root screen, or the launcher when no app runs. */
 static void show_home(void)
 {

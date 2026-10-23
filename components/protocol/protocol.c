@@ -107,7 +107,7 @@ static void send_config(void)
 }
 
 static const char *const CAPABILITIES[] = {
-    "text", "strokes", "key_combo", "consumer", "keyboard_report", "config", "ota",
+    "text", "strokes", "key_combo", "consumer", "keyboard_report", "config", "ota", "device_info",
 };
 
 static void send_hello(void)
@@ -264,6 +264,12 @@ static bridge_Result handle_request(const bridge_Request *req)
         bridge_Result result = s_handlers.set_config(&req->set_config.config, s_ctx);
         send_config();
         return result;
+    }
+    case bridge_Request_get_device_info_tag: {
+        bridge_Event event = { .which_msg = bridge_Event_device_info_tag };
+        s_handlers.get_device_info(&event.device_info, s_ctx);
+        send_event(&event);
+        return bridge_Result_RESULT_OK;
     }
     case bridge_Request_ping_tag:
         return bridge_Result_RESULT_OK;

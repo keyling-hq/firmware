@@ -29,6 +29,7 @@ import time
 from pathlib import Path
 
 from bleak import BleakClient, BleakScanner
+from bleak.exc import BleakError
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bridge_pb2 as pb  # noqa: E402
@@ -182,6 +183,8 @@ class Bridge:
             c = event.config
             print(f"config: layout={c.layout} press={c.key_press_ms}ms release={c.key_release_ms}ms "
                   f"available={list(c.available_layouts)}")
+        elif kind == "device_info":
+            print(f"device info: {event.device_info}", end="")
 
     async def _wait_credits(self):
         self.credits_changed.clear()
@@ -322,6 +325,9 @@ async def execute(bridge, args):
             raise CommandError(f"unknown media key, one of: {', '.join(MEDIA)}")
         await bridge.request(pb.Request(consumer=pb.Consumer(usage=MEDIA[args.key])))
 
+    elif args.command == "device":
+        await bridge.request(pb.Request(get_device_info=pb.GetDeviceInfo()))
+
     elif args.command == "config":
         if not args.settings:
             await bridge.request(pb.Request(get_config=pb.GetConfig()))
@@ -384,6 +390,7 @@ def add_commands(sub):
     p.add_argument("settings", nargs="*")
     p = sub.add_parser("ota", help="update the firmware, e.g. .pio/build/hid/firmware.bin")
     p.add_argument("image")
+    sub.add_parser("device", help="show device information")
     sub.add_parser("ping")
     sub.add_parser("abort", help="stop typing and drop everything pending")
     sub.add_parser("status", help="last Status reported by the dongle")
@@ -459,12 +466,19 @@ async def find_device(args):
 
 async def run(args):
     target = await find_device(args)
+    if args.pair:
+        # A pairing Windows kept from before is useless once the dongle has forgotten it.
+        await BleakClient(target).unpair()
     async with BleakClient(target) as client:
         if args.pair:
             print("pairing: enter the code shown on the dongle when Windows asks")
             await client.pair(protection_level=2)
         bridge = Bridge(client, args.verbose)
-        await bridge.start()
+        try:
+            await bridge.start()
+        except BleakError:
+            raise SystemExit("the dongle dropped the connection: this PC isn't paired with it. Open "
+                             "'Pair new phone' on the dongle and run again with --pair.")
         if args.command == "shell":
             await shell(bridge)
         else:

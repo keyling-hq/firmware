@@ -59,6 +59,11 @@ typedef struct _bridge_Ping {
     char dummy_field;
 } bridge_Ping;
 
+/* Replied to with a DeviceInfo event. */
+typedef struct _bridge_GetDeviceInfo {
+    char dummy_field;
+} bridge_GetDeviceInfo;
+
 typedef PB_BYTES_ARRAY_T(32) bridge_OtaBegin_sha256_t;
 /* Firmware update: OtaBegin, then OtaData in order from offset 0, then OtaEnd. While an update
  is running, input requests fail with RESULT_FAILED. An update is abandoned if the session ends,
@@ -116,6 +121,7 @@ typedef struct _bridge_Request {
         bridge_Ping ping;
         bridge_GetConfig get_config;
         bridge_SetConfig set_config;
+        bridge_GetDeviceInfo get_device_info;
         bridge_OtaBegin ota_begin;
         bridge_OtaData ota_data;
         bridge_OtaEnd ota_end;
@@ -129,7 +135,7 @@ typedef struct _bridge_Hello {
     uint32_t max_frame; /* largest CMD frame payload the dongle accepts */
     char firmware_version[32];
     /* Request families this firmware handles, e.g. "text", "strokes", "key_combo", "consumer",
- "keyboard_report", "config", "ota". */
+ "keyboard_report", "config", "ota", "device_info". */
     pb_size_t capabilities_count;
     char capabilities[12][16];
 } bridge_Hello;
@@ -151,6 +157,67 @@ typedef struct _bridge_Status {
     char layout[16];
 } bridge_Status;
 
+typedef struct _bridge_App {
+    char id[16]; /* stable, e.g. "jiggler" */
+    char name[16]; /* as shown on the dongle */
+} bridge_App;
+
+typedef struct _bridge_SecurityKey {
+    char status[32]; /* "ok" while the FIDO2 security key runs, otherwise why it doesn't */
+} bridge_SecurityKey;
+
+typedef PB_BYTES_ARRAY_T(32) bridge_Security_signer_t;
+/* The device's protection, as reported by the running firmware. Informational only: modified
+ firmware can report anything, so this cannot prove that the firmware is official. */
+typedef struct _bridge_Security {
+    bool has_secure_boot;
+    bool secure_boot; /* the chip only boots signed code */
+    bool has_flash_encryption;
+    char flash_encryption[12]; /* "off", "development" or "release" */
+    bool has_key_storage;
+    char key_storage[12]; /* where the root key lives: "development" (flash) or "efuse" */
+    bool has_signed_updates;
+    bool signed_updates; /* firmware updates must carry a valid signature */
+    /* SHA-256 of the public key that signed the running firmware; absent if it is unsigned.
+ With secure_boot, the signature was checked at boot. */
+    bool has_signer;
+    bridge_Security_signer_t signer;
+    bool has_jtag_disabled;
+    bool jtag_disabled; /* permanently */
+    bool has_download_mode;
+    char download_mode[12]; /* USB/UART flashing: "normal", "secure" or "disabled" */
+} bridge_Security;
+
+/* Every field may be absent: firmware fills in what it knows, and adds fields over time. */
+typedef struct _bridge_DeviceInfo {
+    bool has_name;
+    char name[32]; /* Bluetooth device name */
+    bool has_model;
+    char model[32]; /* board, e.g. "LilyGo T-Dongle-S3" */
+    bool has_chip;
+    char chip[32]; /* e.g. "ESP32-S3 rev 0.2" */
+    bool has_flash_size;
+    uint32_t flash_size; /* bytes */
+    bool has_uptime_s;
+    uint32_t uptime_s;
+    /* Why the dongle last restarted: "power_on", "software" (including updates), "panic",
+ "watchdog", "brownout", "other". */
+    bool has_reset_reason;
+    char reset_reason[16];
+    bool has_free_heap;
+    uint32_t free_heap; /* bytes */
+    bool has_min_free_heap;
+    uint32_t min_free_heap; /* lowest free heap since boot, bytes */
+    pb_size_t apps_count;
+    bridge_App apps[8]; /* on-device apps, in launcher order */
+    bool has_security_key;
+    bridge_SecurityKey security_key;
+    bool has_tx_power_dbm;
+    int32_t tx_power_dbm; /* Bluetooth transmit power */
+    bool has_security;
+    bridge_Security security;
+} bridge_DeviceInfo;
+
 typedef struct _bridge_Event {
     pb_size_t which_msg;
     union {
@@ -159,6 +226,7 @@ typedef struct _bridge_Event {
         bridge_Ack ack;
         bridge_Status status;
         bridge_Config config;
+        bridge_DeviceInfo device_info;
     };
 } bridge_Event;
 
@@ -189,7 +257,12 @@ extern "C" {
 
 
 
+
 #define bridge_Ack_result_ENUMTYPE bridge_Result
+
+
+
+
 
 
 
@@ -203,6 +276,7 @@ extern "C" {
 #define bridge_GetConfig_init_default            {0}
 #define bridge_SetConfig_init_default            {false, bridge_Config_init_default}
 #define bridge_Ping_init_default                 {0}
+#define bridge_GetDeviceInfo_init_default        {0}
 #define bridge_OtaBegin_init_default             {0, {0, {0}}}
 #define bridge_OtaData_init_default              {0, {0, {0}}}
 #define bridge_OtaEnd_init_default               {0}
@@ -213,6 +287,10 @@ extern "C" {
 #define bridge_Credits_init_default              {0, 0}
 #define bridge_Ack_init_default                  {0, _bridge_Result_MIN}
 #define bridge_Status_init_default               {0, 0, ""}
+#define bridge_DeviceInfo_init_default           {false, "", false, "", false, "", false, 0, false, 0, false, "", false, 0, false, 0, 0, {bridge_App_init_default, bridge_App_init_default, bridge_App_init_default, bridge_App_init_default, bridge_App_init_default, bridge_App_init_default, bridge_App_init_default, bridge_App_init_default}, false, bridge_SecurityKey_init_default, false, 0, false, bridge_Security_init_default}
+#define bridge_App_init_default                  {"", ""}
+#define bridge_SecurityKey_init_default          {""}
+#define bridge_Security_init_default             {false, 0, false, "", false, "", false, 0, false, {0, {0}}, false, 0, false, ""}
 #define bridge_Request_init_zero                 {0, 0, {bridge_Text_init_zero}}
 #define bridge_Text_init_zero                    {""}
 #define bridge_Strokes_init_zero                 {{0, {0}}}
@@ -222,6 +300,7 @@ extern "C" {
 #define bridge_GetConfig_init_zero               {0}
 #define bridge_SetConfig_init_zero               {false, bridge_Config_init_zero}
 #define bridge_Ping_init_zero                    {0}
+#define bridge_GetDeviceInfo_init_zero           {0}
 #define bridge_OtaBegin_init_zero                {0, {0, {0}}}
 #define bridge_OtaData_init_zero                 {0, {0, {0}}}
 #define bridge_OtaEnd_init_zero                  {0}
@@ -232,6 +311,10 @@ extern "C" {
 #define bridge_Credits_init_zero                 {0, 0}
 #define bridge_Ack_init_zero                     {0, _bridge_Result_MIN}
 #define bridge_Status_init_zero                  {0, 0, ""}
+#define bridge_DeviceInfo_init_zero              {false, "", false, "", false, "", false, 0, false, 0, false, "", false, 0, false, 0, 0, {bridge_App_init_zero, bridge_App_init_zero, bridge_App_init_zero, bridge_App_init_zero, bridge_App_init_zero, bridge_App_init_zero, bridge_App_init_zero, bridge_App_init_zero}, false, bridge_SecurityKey_init_zero, false, 0, false, bridge_Security_init_zero}
+#define bridge_App_init_zero                     {"", ""}
+#define bridge_SecurityKey_init_zero             {""}
+#define bridge_Security_init_zero                {false, 0, false, "", false, "", false, 0, false, {0, {0}}, false, 0, false, ""}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define bridge_Text_text_tag                     1
@@ -259,6 +342,7 @@ extern "C" {
 #define bridge_Request_ping_tag                  30
 #define bridge_Request_get_config_tag            31
 #define bridge_Request_set_config_tag            32
+#define bridge_Request_get_device_info_tag       33
 #define bridge_Request_ota_begin_tag             40
 #define bridge_Request_ota_data_tag              41
 #define bridge_Request_ota_end_tag               42
@@ -274,11 +358,34 @@ extern "C" {
 #define bridge_Status_typing_tag                 1
 #define bridge_Status_usb_mounted_tag            2
 #define bridge_Status_layout_tag                 3
+#define bridge_App_id_tag                        1
+#define bridge_App_name_tag                      2
+#define bridge_SecurityKey_status_tag            1
+#define bridge_Security_secure_boot_tag          1
+#define bridge_Security_flash_encryption_tag     2
+#define bridge_Security_key_storage_tag          3
+#define bridge_Security_signed_updates_tag       4
+#define bridge_Security_signer_tag               5
+#define bridge_Security_jtag_disabled_tag        6
+#define bridge_Security_download_mode_tag        7
+#define bridge_DeviceInfo_name_tag               1
+#define bridge_DeviceInfo_model_tag              2
+#define bridge_DeviceInfo_chip_tag               3
+#define bridge_DeviceInfo_flash_size_tag         4
+#define bridge_DeviceInfo_uptime_s_tag           5
+#define bridge_DeviceInfo_reset_reason_tag       6
+#define bridge_DeviceInfo_free_heap_tag          7
+#define bridge_DeviceInfo_min_free_heap_tag      8
+#define bridge_DeviceInfo_apps_tag               9
+#define bridge_DeviceInfo_security_key_tag       10
+#define bridge_DeviceInfo_tx_power_dbm_tag       11
+#define bridge_DeviceInfo_security_tag           12
 #define bridge_Event_hello_tag                   1
 #define bridge_Event_credits_tag                 2
 #define bridge_Event_ack_tag                     3
 #define bridge_Event_status_tag                  10
 #define bridge_Event_config_tag                  30
+#define bridge_Event_device_info_tag             31
 
 /* Struct field encoding specification for nanopb */
 #define bridge_Request_FIELDLIST(X, a) \
@@ -291,6 +398,7 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (msg,strokes,strokes),  14) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,ping,ping),  30) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,get_config,get_config),  31) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,set_config,set_config),  32) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (msg,get_device_info,get_device_info),  33) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,ota_begin,ota_begin),  40) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,ota_data,ota_data),  41) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,ota_end,ota_end),  42) \
@@ -305,6 +413,7 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (msg,ota_abort,ota_abort),  43)
 #define bridge_Request_msg_ping_MSGTYPE bridge_Ping
 #define bridge_Request_msg_get_config_MSGTYPE bridge_GetConfig
 #define bridge_Request_msg_set_config_MSGTYPE bridge_SetConfig
+#define bridge_Request_msg_get_device_info_MSGTYPE bridge_GetDeviceInfo
 #define bridge_Request_msg_ota_begin_MSGTYPE bridge_OtaBegin
 #define bridge_Request_msg_ota_data_MSGTYPE bridge_OtaData
 #define bridge_Request_msg_ota_end_MSGTYPE bridge_OtaEnd
@@ -353,6 +462,11 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  config,            1)
 #define bridge_Ping_CALLBACK NULL
 #define bridge_Ping_DEFAULT NULL
 
+#define bridge_GetDeviceInfo_FIELDLIST(X, a) \
+
+#define bridge_GetDeviceInfo_CALLBACK NULL
+#define bridge_GetDeviceInfo_DEFAULT NULL
+
 #define bridge_OtaBegin_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   size,              1) \
 X(a, STATIC,   SINGULAR, BYTES,    sha256,            2)
@@ -388,7 +502,8 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (msg,hello,hello),   1) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,credits,credits),   2) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,ack,ack),     3) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,status,status),  10) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (msg,config,config),  30)
+X(a, STATIC,   ONEOF,    MESSAGE,  (msg,config,config),  30) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (msg,device_info,device_info),  31)
 #define bridge_Event_CALLBACK NULL
 #define bridge_Event_DEFAULT NULL
 #define bridge_Event_msg_hello_MSGTYPE bridge_Hello
@@ -396,6 +511,7 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (msg,config,config),  30)
 #define bridge_Event_msg_ack_MSGTYPE bridge_Ack
 #define bridge_Event_msg_status_MSGTYPE bridge_Status
 #define bridge_Event_msg_config_MSGTYPE bridge_Config
+#define bridge_Event_msg_device_info_MSGTYPE bridge_DeviceInfo
 
 #define bridge_Hello_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   protocol_version,   1) \
@@ -424,6 +540,47 @@ X(a, STATIC,   SINGULAR, STRING,   layout,            3)
 #define bridge_Status_CALLBACK NULL
 #define bridge_Status_DEFAULT NULL
 
+#define bridge_DeviceInfo_FIELDLIST(X, a) \
+X(a, STATIC,   OPTIONAL, STRING,   name,              1) \
+X(a, STATIC,   OPTIONAL, STRING,   model,             2) \
+X(a, STATIC,   OPTIONAL, STRING,   chip,              3) \
+X(a, STATIC,   OPTIONAL, UINT32,   flash_size,        4) \
+X(a, STATIC,   OPTIONAL, UINT32,   uptime_s,          5) \
+X(a, STATIC,   OPTIONAL, STRING,   reset_reason,      6) \
+X(a, STATIC,   OPTIONAL, UINT32,   free_heap,         7) \
+X(a, STATIC,   OPTIONAL, UINT32,   min_free_heap,     8) \
+X(a, STATIC,   REPEATED, MESSAGE,  apps,              9) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  security_key,     10) \
+X(a, STATIC,   OPTIONAL, SINT32,   tx_power_dbm,     11) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  security,         12)
+#define bridge_DeviceInfo_CALLBACK NULL
+#define bridge_DeviceInfo_DEFAULT NULL
+#define bridge_DeviceInfo_apps_MSGTYPE bridge_App
+#define bridge_DeviceInfo_security_key_MSGTYPE bridge_SecurityKey
+#define bridge_DeviceInfo_security_MSGTYPE bridge_Security
+
+#define bridge_App_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   id,                1) \
+X(a, STATIC,   SINGULAR, STRING,   name,              2)
+#define bridge_App_CALLBACK NULL
+#define bridge_App_DEFAULT NULL
+
+#define bridge_SecurityKey_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   status,            1)
+#define bridge_SecurityKey_CALLBACK NULL
+#define bridge_SecurityKey_DEFAULT NULL
+
+#define bridge_Security_FIELDLIST(X, a) \
+X(a, STATIC,   OPTIONAL, BOOL,     secure_boot,       1) \
+X(a, STATIC,   OPTIONAL, STRING,   flash_encryption,   2) \
+X(a, STATIC,   OPTIONAL, STRING,   key_storage,       3) \
+X(a, STATIC,   OPTIONAL, BOOL,     signed_updates,    4) \
+X(a, STATIC,   OPTIONAL, BYTES,    signer,            5) \
+X(a, STATIC,   OPTIONAL, BOOL,     jtag_disabled,     6) \
+X(a, STATIC,   OPTIONAL, STRING,   download_mode,     7)
+#define bridge_Security_CALLBACK NULL
+#define bridge_Security_DEFAULT NULL
+
 extern const pb_msgdesc_t bridge_Request_msg;
 extern const pb_msgdesc_t bridge_Text_msg;
 extern const pb_msgdesc_t bridge_Strokes_msg;
@@ -433,6 +590,7 @@ extern const pb_msgdesc_t bridge_KeyboardReport_msg;
 extern const pb_msgdesc_t bridge_GetConfig_msg;
 extern const pb_msgdesc_t bridge_SetConfig_msg;
 extern const pb_msgdesc_t bridge_Ping_msg;
+extern const pb_msgdesc_t bridge_GetDeviceInfo_msg;
 extern const pb_msgdesc_t bridge_OtaBegin_msg;
 extern const pb_msgdesc_t bridge_OtaData_msg;
 extern const pb_msgdesc_t bridge_OtaEnd_msg;
@@ -443,6 +601,10 @@ extern const pb_msgdesc_t bridge_Hello_msg;
 extern const pb_msgdesc_t bridge_Credits_msg;
 extern const pb_msgdesc_t bridge_Ack_msg;
 extern const pb_msgdesc_t bridge_Status_msg;
+extern const pb_msgdesc_t bridge_DeviceInfo_msg;
+extern const pb_msgdesc_t bridge_App_msg;
+extern const pb_msgdesc_t bridge_SecurityKey_msg;
+extern const pb_msgdesc_t bridge_Security_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define bridge_Request_fields &bridge_Request_msg
@@ -454,6 +616,7 @@ extern const pb_msgdesc_t bridge_Status_msg;
 #define bridge_GetConfig_fields &bridge_GetConfig_msg
 #define bridge_SetConfig_fields &bridge_SetConfig_msg
 #define bridge_Ping_fields &bridge_Ping_msg
+#define bridge_GetDeviceInfo_fields &bridge_GetDeviceInfo_msg
 #define bridge_OtaBegin_fields &bridge_OtaBegin_msg
 #define bridge_OtaData_fields &bridge_OtaData_msg
 #define bridge_OtaEnd_fields &bridge_OtaEnd_msg
@@ -464,15 +627,22 @@ extern const pb_msgdesc_t bridge_Status_msg;
 #define bridge_Credits_fields &bridge_Credits_msg
 #define bridge_Ack_fields &bridge_Ack_msg
 #define bridge_Status_fields &bridge_Status_msg
+#define bridge_DeviceInfo_fields &bridge_DeviceInfo_msg
+#define bridge_App_fields &bridge_App_msg
+#define bridge_SecurityKey_fields &bridge_SecurityKey_msg
+#define bridge_Security_fields &bridge_Security_msg
 
 /* Maximum encoded size of messages (where known) */
 #define BRIDGE_BRIDGE_PB_H_MAX_SIZE              bridge_Request_size
 #define bridge_Ack_size                          8
+#define bridge_App_size                          34
 #define bridge_Config_size                       165
 #define bridge_Consumer_size                     6
 #define bridge_Credits_size                      8
-#define bridge_Event_size                        252
+#define bridge_DeviceInfo_size                   550
+#define bridge_Event_size                        554
 #define bridge_GetConfig_size                    0
+#define bridge_GetDeviceInfo_size                0
 #define bridge_Hello_size                        249
 #define bridge_KeyCombo_size                     14
 #define bridge_KeyboardReport_size               14
@@ -482,6 +652,8 @@ extern const pb_msgdesc_t bridge_Status_msg;
 #define bridge_OtaEnd_size                       0
 #define bridge_Ping_size                         0
 #define bridge_Request_size                      1035
+#define bridge_SecurityKey_size                  33
+#define bridge_Security_size                     79
 #define bridge_SetConfig_size                    168
 #define bridge_Status_size                       21
 #define bridge_Strokes_size                      1023

@@ -132,6 +132,7 @@ static void show_settings(void)
 }
 
 const ui_app_t ui_app_settings = {
+    .id = "settings",
     .name = "Settings",
     .icon = LV_SYMBOL_SETTINGS,
     .show = show_settings,

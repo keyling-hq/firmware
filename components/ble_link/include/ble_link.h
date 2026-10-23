@@ -51,6 +51,9 @@ esp_err_t ble_link_start(const char *device_name, const ble_link_callbacks_t *ca
  */
 void ble_link_pairing_window(bool open);
 
+/** Bluetooth transmit power in dBm, or false if the controller doesn't report it. */
+bool ble_link_tx_power_dbm(int *dbm);
+
 /** Deletes the bond and drops the connection. */
 esp_err_t ble_link_forget(void);
 

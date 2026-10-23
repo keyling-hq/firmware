@@ -6,9 +6,14 @@
 #include "datafs.h"
 #include "esp_attr.h"
 #include "esp_check.h"
+#include "esp_chip_info.h"
+#include "esp_flash.h"
 #include "esp_log.h"
 #include <stdio.h>
 #include "esp_core_dump.h"
+#include "esp_efuse.h"
+#include "esp_efuse_table.h"
+#include "esp_flash_encrypt.h"
 #include "esp_heap_caps.h"
 #include "esp_system.h"
 #include "esp_timer.h"
@@ -289,6 +294,106 @@ static void proto_get_status(bridge_Status *out, void *ctx)
     strlcpy(out->layout, settings.layout, sizeof(out->layout));
 }
 
+static const char *reset_reason_name(esp_reset_reason_t reason)
+{
+    switch (reason) {
+    case ESP_RST_POWERON:
+        return "power_on";
+    case ESP_RST_SW:
+        return "software";
+    case ESP_RST_PANIC:
+        return "panic";
+    case ESP_RST_INT_WDT:
+    case ESP_RST_TASK_WDT:
+    case ESP_RST_WDT:
+        return "watchdog";
+    case ESP_RST_BROWNOUT:
+        return "brownout";
+    default:
+        return "other";
+    }
+}
+
+static void get_security(bridge_Security *out)
+{
+    keystore_status_t ks;
+    keystore_status(&ks);
+    out->has_secure_boot = true;
+    out->secure_boot = ks.secure_boot;
+    out->has_key_storage = true;
+    strlcpy(out->key_storage, ks.root == KEYSTORE_ROOT_EFUSE ? "efuse" : "development", sizeof(out->key_storage));
+
+    static const char *const fe_modes[] = {
+        [ESP_FLASH_ENC_MODE_DISABLED] = "off",
+        [ESP_FLASH_ENC_MODE_DEVELOPMENT] = "development",
+        [ESP_FLASH_ENC_MODE_RELEASE] = "release",
+    };
+    out->has_flash_encryption = true;
+    strlcpy(out->flash_encryption, fe_modes[esp_get_flash_encryption_mode()], sizeof(out->flash_encryption));
+
+    out->has_signed_updates = true;
+#ifdef CONFIG_SECURE_SIGNED_ON_UPDATE
+    out->signed_updates = true;
+#endif
+    out->has_jtag_disabled = true;
+    out->jtag_disabled = esp_efuse_read_field_bit(ESP_EFUSE_DIS_PAD_JTAG) &&
+                         esp_efuse_read_field_bit(ESP_EFUSE_DIS_USB_JTAG);
+    out->has_download_mode = true;
+    strlcpy(out->download_mode,
+            esp_efuse_read_field_bit(ESP_EFUSE_DIS_DOWNLOAD_MODE)          ? "disabled"
+            : esp_efuse_read_field_bit(ESP_EFUSE_ENABLE_SECURITY_DOWNLOAD) ? "secure"
+                                                                            : "normal",
+            sizeof(out->download_mode));
+}
+
+static void proto_get_device_info(bridge_DeviceInfo *out, void *ctx)
+{
+    settings_t settings;
+    settings_get(&settings);
+    out->has_name = true;
+    strlcpy(out->name, settings.ble_name, sizeof(out->name));
+    out->has_model = true;
+    strlcpy(out->model, BSP_BOARD_NAME, sizeof(out->model));
+
+    esp_chip_info_t chip;
+    esp_chip_info(&chip);
+    out->has_chip = true;
+    snprintf(out->chip, sizeof(out->chip), "ESP32-S3 rev %d.%d", chip.revision / 100, chip.revision % 100);
+    uint32_t flash_size;
+    if (esp_flash_get_size(NULL, &flash_size) == ESP_OK) {
+        out->has_flash_size = true;
+        out->flash_size = flash_size;
+    }
+
+    out->has_uptime_s = true;
+    out->uptime_s = (uint32_t)(esp_timer_get_time() / 1000000);
+    out->has_reset_reason = true;
+    strlcpy(out->reset_reason, reset_reason_name(esp_reset_reason()), sizeof(out->reset_reason));
+    out->has_free_heap = true;
+    out->free_heap = esp_get_free_heap_size();
+    out->has_min_free_heap = true;
+    out->min_free_heap = esp_get_minimum_free_heap_size();
+
+    const char *id;
+    const char *name;
+    size_t max = sizeof(out->apps) / sizeof(out->apps[0]);
+    for (size_t i = 0; i < max && ui_app_info(i, &id, &name); i++) {
+        strlcpy(out->apps[i].id, id, sizeof(out->apps[i].id));
+        strlcpy(out->apps[i].name, name, sizeof(out->apps[i].name));
+        out->apps_count = i + 1;
+    }
+
+    out->has_security_key = true;
+    strlcpy(out->security_key.status, canokey_status(), sizeof(out->security_key.status));
+    int dbm;
+    if (ble_link_tx_power_dbm(&dbm)) {
+        out->has_tx_power_dbm = true;
+        out->tx_power_dbm = dbm;
+    }
+    out->has_security = true;
+    get_security(&out->security);
+}
+
 static void proto_ota_state(bool active, uint8_t percent, void *ctx)
 {
     ui_show_update(active, percent);
@@ -416,6 +521,7 @@ esp_err_t app_start(void)
         .get_config = proto_get_config,
         .set_config = proto_set_config,
         .get_status = proto_get_status,
+        .get_device_info = proto_get_device_info,
         .ota_state = proto_ota_state,
     };
     ESP_RETURN_ON_ERROR(protocol_start(&protocol_handlers, NULL), TAG, "protocol");

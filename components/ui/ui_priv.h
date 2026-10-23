@@ -14,6 +14,7 @@ typedef void (*ui_screen_fn_t)(void);
  * time: leaving it stops it, the screen turning off does not.
  */
 typedef struct {
+    const char *id;             /* stable, reported to the phone */
     const char *name;
     const char *icon;           /* LV_SYMBOL_*, drawn in the large font */
     void (*start)(void);        /* optional: the app became current */

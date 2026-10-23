@@ -33,6 +33,9 @@ PB_BIND(bridge_SetConfig, bridge_SetConfig, AUTO)
 PB_BIND(bridge_Ping, bridge_Ping, AUTO)
 
 
+PB_BIND(bridge_GetDeviceInfo, bridge_GetDeviceInfo, AUTO)
+
+
 PB_BIND(bridge_OtaBegin, bridge_OtaBegin, AUTO)
 
 
@@ -48,7 +51,7 @@ PB_BIND(bridge_OtaAbort, bridge_OtaAbort, AUTO)
 PB_BIND(bridge_Config, bridge_Config, AUTO)
 
 
-PB_BIND(bridge_Event, bridge_Event, AUTO)
+PB_BIND(bridge_Event, bridge_Event, 2)
 
 
 PB_BIND(bridge_Hello, bridge_Hello, AUTO)
@@ -61,6 +64,18 @@ PB_BIND(bridge_Ack, bridge_Ack, AUTO)
 
 
 PB_BIND(bridge_Status, bridge_Status, AUTO)
+
+
+PB_BIND(bridge_DeviceInfo, bridge_DeviceInfo, 2)
+
+
+PB_BIND(bridge_App, bridge_App, AUTO)
+
+
+PB_BIND(bridge_SecurityKey, bridge_SecurityKey, AUTO)
+
+
+PB_BIND(bridge_Security, bridge_Security, AUTO)
 
 
 
