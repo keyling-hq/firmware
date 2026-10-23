@@ -10,10 +10,10 @@ jobs:
     name: Lint, type check, generated code
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - name: Install
@@ -37,14 +37,14 @@ jobs:
       matrix:
         env: [dev, hid]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
           fetch-depth: 0
       - uses: ./.github/actions/setup-build
       - name: Build
         run: pio run -e ${{ matrix.env }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: matrix.env == 'hid'
         with:
           name: firmware-hid

@@ -7,10 +7,10 @@ runs:
     - name: canokey-core submodules
       shell: bash
       run: git -C components/canokey/canokey-core submodule update --init --depth 1 canokey-crypto tinycbor
-    - uses: actions/setup-python@v5
+    - uses: actions/setup-python@v7
       with:
         python-version: "3.11"
-    - uses: actions/cache@v4
+    - uses: actions/cache@v6
       with:
         path: |
           ~/.platformio
