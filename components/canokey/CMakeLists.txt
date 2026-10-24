@@ -95,7 +95,7 @@ idf_component_register(
         ${CK}/tinycbor/src
         ${CK_CRYPTO}/include
         ${CK_GEN}
-    PRIV_REQUIRES esp_driver_gpio esp_partition esp_timer joltwallet__littlefs mbedtls nvs_flash usb_hid
+    PRIV_REQUIRES esp_driver_gpio esp_partition esp_timer joltwallet__littlefs keystore mbedtls nvs_flash usb_hid
 )
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE

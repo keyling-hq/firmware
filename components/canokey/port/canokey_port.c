@@ -11,7 +11,9 @@
 #include "esp_partition.h"
 #include "esp_random.h"
 #include "esp_timer.h"
+#include "keystore.h"
 #include "nvs.h"
+#include "aes/esp_aes.h"
 #include <stdio.h>
 #include <apdu.h>
 #include <applets.h>
@@ -37,6 +39,10 @@ static const char *TAG = "canokey";
 
 #define NVS_NAMESPACE       "canokey"
 #define NVS_CONFIG_PAGE     "cfgpage"
+#define NVS_STORAGE_SALT    "fssalt"
+
+#define STORAGE_SALT_SIZE   16
+#define XTS_UNIT            16
 
 extern const uint8_t canokey_dev_attestation_key[32];
 extern const uint8_t canokey_dev_attestation_cert[];
@@ -47,7 +53,11 @@ static bool s_fs_mounted;
 static uint8_t s_read_buf[FS_CACHE_SIZE];
 static uint8_t s_prog_buf[FS_CACHE_SIZE];
 static uint8_t s_lookahead_buf[FS_LOOKAHEAD_SIZE];
+static uint8_t s_cipher_buf[FS_CACHE_SIZE];
 static struct lfs_config s_lfs_cfg;
+static esp_aes_xts_context s_xts_enc;
+static esp_aes_xts_context s_xts_dec;
+static volatile bool s_erase_pending;
 
 static const char *s_status = "not started";
 static TaskHandle_t s_task;
@@ -174,14 +184,82 @@ int platform_config_page_write(const void *page, size_t len)
 
 /* ---- littlefs on the "fido" partition ------------------------------------ */
 
+/*
+ * Everything on the partition is encrypted with XTS-AES-128 in 16-byte units, tweaked by the
+ * unit's offset: the scheme of the chip's flash encryption, keyed from the keystore. A new salt
+ * (after a security key reset) or a new keystore root makes all earlier contents unreadable.
+ */
+static esp_err_t storage_key_load(bool renew)
+{
+    uint8_t salt[STORAGE_SALT_SIZE];
+    nvs_handle_t nvs;
+    ESP_RETURN_ON_ERROR(nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs), TAG, "nvs");
+    size_t len = sizeof(salt);
+    esp_err_t err = ESP_OK;
+    if (renew || nvs_get_blob(nvs, NVS_STORAGE_SALT, salt, &len) != ESP_OK || len != sizeof(salt)) {
+        esp_fill_random(salt, sizeof(salt));
+        err = nvs_set_blob(nvs, NVS_STORAGE_SALT, salt, sizeof(salt));
+        if (err == ESP_OK) {
+            err = nvs_commit(nvs);
+        }
+    }
+    nvs_close(nvs);
+    ESP_RETURN_ON_ERROR(err, TAG, "salt");
+
+    uint8_t key[KEYSTORE_KEY_SIZE];
+    err = keystore_derive("fido", salt, sizeof(salt), key);
+    if (err == ESP_OK) {
+        esp_aes_xts_free(&s_xts_enc);
+        esp_aes_xts_free(&s_xts_dec);
+        esp_aes_xts_init(&s_xts_enc);
+        esp_aes_xts_init(&s_xts_dec);
+        if (esp_aes_xts_setkey_enc(&s_xts_enc, key, 8 * sizeof(key)) != 0 ||
+            esp_aes_xts_setkey_dec(&s_xts_dec, key, 8 * sizeof(key)) != 0) {
+            err = ESP_FAIL;
+        }
+    }
+    memset(key, 0, sizeof(key));
+    return err;
+}
+
+static int crypt_units(esp_aes_xts_context *ctx, int mode, uint32_t addr, const uint8_t *in, uint8_t *out,
+                       size_t size)
+{
+    for (size_t i = 0; i < size; i += XTS_UNIT) {
+        uint8_t tweak[16] = { 0 };
+        uint32_t unit_addr = addr + i;
+        memcpy(tweak, &unit_addr, sizeof(unit_addr));
+        if (esp_aes_crypt_xts(ctx, mode, XTS_UNIT, tweak, in + i, out + i) != 0) {
+            return LFS_ERR_IO;
+        }
+    }
+    return LFS_ERR_OK;
+}
+
 static int lfs_read(const struct lfs_config *c, lfs_block_t block, lfs_off_t off, void *buf, lfs_size_t size)
 {
-    return esp_partition_read(s_part, block * c->block_size + off, buf, size) == ESP_OK ? LFS_ERR_OK : LFS_ERR_IO;
+    uint32_t addr = block * c->block_size + off;
+    if (esp_partition_read(s_part, addr, buf, size) != ESP_OK) {
+        return LFS_ERR_IO;
+    }
+    return crypt_units(&s_xts_dec, ESP_AES_DECRYPT, addr, buf, buf, size);
 }
 
 static int lfs_prog(const struct lfs_config *c, lfs_block_t block, lfs_off_t off, const void *buf, lfs_size_t size)
 {
-    return esp_partition_write(s_part, block * c->block_size + off, buf, size) == ESP_OK ? LFS_ERR_OK : LFS_ERR_IO;
+    uint32_t addr = block * c->block_size + off;
+    const uint8_t *in = buf;
+    while (size) {
+        size_t chunk = size < sizeof(s_cipher_buf) ? size : sizeof(s_cipher_buf);
+        if (crypt_units(&s_xts_enc, ESP_AES_ENCRYPT, addr, in, s_cipher_buf, chunk) != LFS_ERR_OK ||
+            esp_partition_write(s_part, addr, s_cipher_buf, chunk) != ESP_OK) {
+            return LFS_ERR_IO;
+        }
+        addr += chunk;
+        in += chunk;
+        size -= chunk;
+    }
+    return LFS_ERR_OK;
 }
 
 static int lfs_erase(const struct lfs_config *c, lfs_block_t block)
@@ -195,6 +273,15 @@ static int lfs_sync(const struct lfs_config *c)
     return LFS_ERR_OK;
 }
 
+/* littlefs's format rewrites only its superblocks: the rest is erased so no old block survives. */
+static int format_storage(void)
+{
+    if (esp_partition_erase_range(s_part, 0, s_part->size) != ESP_OK) {
+        return LFS_ERR_IO;
+    }
+    return fs_format(&s_lfs_cfg);
+}
+
 static esp_err_t fs_start(void)
 {
     if (s_fs_mounted) {
@@ -202,6 +289,8 @@ static esp_err_t fs_start(void)
     }
     s_part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, PARTITION_LABEL);
     ESP_RETURN_ON_FALSE(s_part, ESP_ERR_NOT_FOUND, TAG, "no '%s' partition", PARTITION_LABEL);
+    /* Without the key a failed mount must not lead to a format. */
+    ESP_RETURN_ON_ERROR(storage_key_load(false), TAG, "storage key");
 
     s_lfs_cfg = (struct lfs_config){
         .read = lfs_read,
@@ -220,8 +309,9 @@ static esp_err_t fs_start(void)
         .lookahead_buffer = s_lookahead_buf,
     };
     if (fs_mount(&s_lfs_cfg) < 0) {
+        /* Also the path after a factory reset: the new keystore salt changes the storage key. */
         ESP_LOGW(TAG, "formatting '%s'", PARTITION_LABEL);
-        ESP_RETURN_ON_FALSE(fs_format(&s_lfs_cfg) == 0, ESP_FAIL, TAG, "format");
+        ESP_RETURN_ON_FALSE(format_storage() == 0, ESP_FAIL, TAG, "format");
         ESP_RETURN_ON_FALSE(fs_mount(&s_lfs_cfg) == 0, ESP_FAIL, TAG, "mount");
     }
     s_fs_mounted = true;
@@ -342,7 +432,35 @@ uint8_t __wrap_wait_for_user_presence(uint8_t entry)
     stop_blinking();
     s_presence_waiting = false;
     report_presence(false, result == USER_PRESENCE_OK);
+    if (result == USER_PRESENCE_OK) {
+        canokey_request_t kind;
+        const char *rp_id;
+        ctap_request_current(&kind, &rp_id);
+        s_erase_pending = kind == CANOKEY_REQUEST_RESET;
+    }
     return result;
+}
+
+/*
+ * canokey's reset deletes its files, but their old blocks would stay readable with the same key.
+ * After an approved reset the storage gets a new key and a fresh filesystem instead.
+ */
+static void erase_storage(void)
+{
+    ESP_LOGW(TAG, "security key reset: erasing its storage");
+    if (storage_key_load(true) != ESP_OK || format_storage() != 0 || fs_mount(&s_lfs_cfg) != 0 ||
+        ctap_install(1) != 0 || install_dev_attestation() != ESP_OK) {
+        s_status = "reset failed";
+        ESP_LOGE(TAG, "%s", s_status);
+    }
+}
+
+void canokey_port_request_done(void)
+{
+    if (s_erase_pending) {
+        s_erase_pending = false;
+        erase_storage();
+    }
 }
 
 void canokey_confirm_presence(void)

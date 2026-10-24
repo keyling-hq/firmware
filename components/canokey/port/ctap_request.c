@@ -108,7 +108,9 @@ int __wrap_ctap_process_cbor_stream_with_src(uint8_t *req, size_t req_len, uint8
     if (req) {
         note_request(req, req_len);
     }
-    return __real_ctap_process_cbor_stream_with_src(req, req_len, scratch, scratch_len, source, src);
+    int rc = __real_ctap_process_cbor_stream_with_src(req, req_len, scratch, scratch_len, source, src);
+    canokey_port_request_done();
+    return rc;
 }
 
 int __wrap_ctap_process_cbor_stream_source_with_src(const ctap_req_src_t *req_src, uint8_t *scratch,
@@ -120,5 +122,7 @@ int __wrap_ctap_process_cbor_stream_source_with_src(const ctap_req_src_t *req_sr
             note_request(s_peek, len);
         }
     }
-    return __real_ctap_process_cbor_stream_source_with_src(req_src, scratch, scratch_len, source, src);
+    int rc = __real_ctap_process_cbor_stream_source_with_src(req_src, scratch, scratch_len, source, src);
+    canokey_port_request_done();
+    return rc;
 }
