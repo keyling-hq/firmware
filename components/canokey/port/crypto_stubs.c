@@ -104,9 +104,23 @@ int K__ed25519_randomized_sign_final(ed25519_randomized_sign_state_t *state, K__
     return 0;
 }
 
+static void reverse_32(uint8_t out[32], const uint8_t in[32])
+{
+    for (int i = 0; i < 32; i++) {
+        out[i] = in[31 - i];
+    }
+}
+
+/* canokey keeps X25519 values big-endian (like its mbedtls version); Monocypher uses RFC 7748's little-endian. */
 void K__x25519(K__x25519_key shared_secret, const K__x25519_key private_key, const K__x25519_key public_key)
 {
-    crypto_x25519(shared_secret, private_key, public_key);
+    uint8_t sk[32], pk[32], out[32];
+    reverse_32(sk, private_key);
+    reverse_32(pk, public_key);
+    crypto_x25519(out, sk, pk);
+    reverse_32(shared_secret, out);
+    memzero(sk, sizeof(sk));
+    memzero(out, sizeof(out));
 }
 
 /*
