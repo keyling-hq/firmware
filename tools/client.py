@@ -124,6 +124,7 @@ class Bridge:
         self.pending = {}
         self.next_id = 1
         self.status = None
+        self.logs = None
         self.idle = asyncio.Event()
         self.send_lock = asyncio.Lock()
         self.abort_generation = 0
@@ -186,6 +187,8 @@ class Bridge:
                   f"available={list(c.available_layouts)}")
         elif kind == "device_info":
             print(f"device info: {event.device_info}", end="")
+        elif kind == "logs":
+            self.logs = event.logs
 
     async def _wait_credits(self):
         self.credits_changed.clear()
@@ -328,6 +331,23 @@ async def execute(bridge, args):
     elif args.command == "device":
         await bridge.request(pb.Request(get_device_info=pb.GetDeviceInfo()))
 
+    elif args.command == "logs":
+        since = 0
+        while True:
+            await bridge.request(pb.Request(get_logs=pb.GetLogs(since=since)))
+            logs = bridge.logs
+            if logs is None:
+                raise CommandError("the dongle sent no logs")
+            if logs.start > since:
+                print(f"[{logs.start - since} bytes of older log overwritten]")
+            sys.stdout.write(logs.data.decode("utf-8", "replace"))
+            sys.stdout.flush()
+            since = logs.next
+            if since >= logs.end:
+                if not args.follow:
+                    break
+                await asyncio.sleep(1)
+
     elif args.command == "config":
         if not args.settings:
             await bridge.request(pb.Request(get_config=pb.GetConfig()))
@@ -391,6 +411,8 @@ def add_commands(sub):
     p = sub.add_parser("ota", help="update the firmware, e.g. .pio/build/hid/firmware.bin")
     p.add_argument("image")
     sub.add_parser("device", help="show device information")
+    p = sub.add_parser("logs", help="print the dongle's recent log output")
+    p.add_argument("-f", "--follow", action="store_true", help="keep printing new output")
     sub.add_parser("ping")
     sub.add_parser("abort", help="stop typing and drop everything pending")
     sub.add_parser("status", help="last Status reported by the dongle")

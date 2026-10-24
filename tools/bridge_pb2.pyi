@@ -19,7 +19,7 @@ RESULT_FAILED: Result
 RESULT_ABORTED: Result
 
 class Request(_message.Message):
-    __slots__ = ("id", "text", "key_combo", "consumer", "keyboard_report", "strokes", "ping", "get_config", "set_config", "get_device_info", "ota_begin", "ota_data", "ota_end", "ota_abort")
+    __slots__ = ("id", "text", "key_combo", "consumer", "keyboard_report", "strokes", "ping", "get_config", "set_config", "get_device_info", "get_logs", "ota_begin", "ota_data", "ota_end", "ota_abort")
     ID_FIELD_NUMBER: _ClassVar[int]
     TEXT_FIELD_NUMBER: _ClassVar[int]
     KEY_COMBO_FIELD_NUMBER: _ClassVar[int]
@@ -30,6 +30,7 @@ class Request(_message.Message):
     GET_CONFIG_FIELD_NUMBER: _ClassVar[int]
     SET_CONFIG_FIELD_NUMBER: _ClassVar[int]
     GET_DEVICE_INFO_FIELD_NUMBER: _ClassVar[int]
+    GET_LOGS_FIELD_NUMBER: _ClassVar[int]
     OTA_BEGIN_FIELD_NUMBER: _ClassVar[int]
     OTA_DATA_FIELD_NUMBER: _ClassVar[int]
     OTA_END_FIELD_NUMBER: _ClassVar[int]
@@ -44,11 +45,12 @@ class Request(_message.Message):
     get_config: GetConfig
     set_config: SetConfig
     get_device_info: GetDeviceInfo
+    get_logs: GetLogs
     ota_begin: OtaBegin
     ota_data: OtaData
     ota_end: OtaEnd
     ota_abort: OtaAbort
-    def __init__(self, id: _Optional[int] = ..., text: _Optional[_Union[Text, _Mapping]] = ..., key_combo: _Optional[_Union[KeyCombo, _Mapping]] = ..., consumer: _Optional[_Union[Consumer, _Mapping]] = ..., keyboard_report: _Optional[_Union[KeyboardReport, _Mapping]] = ..., strokes: _Optional[_Union[Strokes, _Mapping]] = ..., ping: _Optional[_Union[Ping, _Mapping]] = ..., get_config: _Optional[_Union[GetConfig, _Mapping]] = ..., set_config: _Optional[_Union[SetConfig, _Mapping]] = ..., get_device_info: _Optional[_Union[GetDeviceInfo, _Mapping]] = ..., ota_begin: _Optional[_Union[OtaBegin, _Mapping]] = ..., ota_data: _Optional[_Union[OtaData, _Mapping]] = ..., ota_end: _Optional[_Union[OtaEnd, _Mapping]] = ..., ota_abort: _Optional[_Union[OtaAbort, _Mapping]] = ...) -> None: ...
+    def __init__(self, id: _Optional[int] = ..., text: _Optional[_Union[Text, _Mapping]] = ..., key_combo: _Optional[_Union[KeyCombo, _Mapping]] = ..., consumer: _Optional[_Union[Consumer, _Mapping]] = ..., keyboard_report: _Optional[_Union[KeyboardReport, _Mapping]] = ..., strokes: _Optional[_Union[Strokes, _Mapping]] = ..., ping: _Optional[_Union[Ping, _Mapping]] = ..., get_config: _Optional[_Union[GetConfig, _Mapping]] = ..., set_config: _Optional[_Union[SetConfig, _Mapping]] = ..., get_device_info: _Optional[_Union[GetDeviceInfo, _Mapping]] = ..., get_logs: _Optional[_Union[GetLogs, _Mapping]] = ..., ota_begin: _Optional[_Union[OtaBegin, _Mapping]] = ..., ota_data: _Optional[_Union[OtaData, _Mapping]] = ..., ota_end: _Optional[_Union[OtaEnd, _Mapping]] = ..., ota_abort: _Optional[_Union[OtaAbort, _Mapping]] = ...) -> None: ...
 
 class Text(_message.Message):
     __slots__ = ("text",)
@@ -102,6 +104,12 @@ class GetDeviceInfo(_message.Message):
     __slots__ = ()
     def __init__(self) -> None: ...
 
+class GetLogs(_message.Message):
+    __slots__ = ("since",)
+    SINCE_FIELD_NUMBER: _ClassVar[int]
+    since: int
+    def __init__(self, since: _Optional[int] = ...) -> None: ...
+
 class OtaBegin(_message.Message):
     __slots__ = ("size", "sha256")
     SIZE_FIELD_NUMBER: _ClassVar[int]
@@ -139,20 +147,22 @@ class Config(_message.Message):
     def __init__(self, layout: _Optional[str] = ..., key_press_ms: _Optional[int] = ..., key_release_ms: _Optional[int] = ..., available_layouts: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class Event(_message.Message):
-    __slots__ = ("hello", "credits", "ack", "status", "config", "device_info")
+    __slots__ = ("hello", "credits", "ack", "status", "config", "device_info", "logs")
     HELLO_FIELD_NUMBER: _ClassVar[int]
     CREDITS_FIELD_NUMBER: _ClassVar[int]
     ACK_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
     CONFIG_FIELD_NUMBER: _ClassVar[int]
     DEVICE_INFO_FIELD_NUMBER: _ClassVar[int]
+    LOGS_FIELD_NUMBER: _ClassVar[int]
     hello: Hello
     credits: Credits
     ack: Ack
     status: Status
     config: Config
     device_info: DeviceInfo
-    def __init__(self, hello: _Optional[_Union[Hello, _Mapping]] = ..., credits: _Optional[_Union[Credits, _Mapping]] = ..., ack: _Optional[_Union[Ack, _Mapping]] = ..., status: _Optional[_Union[Status, _Mapping]] = ..., config: _Optional[_Union[Config, _Mapping]] = ..., device_info: _Optional[_Union[DeviceInfo, _Mapping]] = ...) -> None: ...
+    logs: Logs
+    def __init__(self, hello: _Optional[_Union[Hello, _Mapping]] = ..., credits: _Optional[_Union[Credits, _Mapping]] = ..., ack: _Optional[_Union[Ack, _Mapping]] = ..., status: _Optional[_Union[Status, _Mapping]] = ..., config: _Optional[_Union[Config, _Mapping]] = ..., device_info: _Optional[_Union[DeviceInfo, _Mapping]] = ..., logs: _Optional[_Union[Logs, _Mapping]] = ...) -> None: ...
 
 class Hello(_message.Message):
     __slots__ = ("protocol_version", "max_frame", "firmware_version", "capabilities")
@@ -251,3 +261,15 @@ class Security(_message.Message):
     jtag_disabled: bool
     download_mode: str
     def __init__(self, secure_boot: _Optional[bool] = ..., flash_encryption: _Optional[str] = ..., key_storage: _Optional[str] = ..., signed_updates: _Optional[bool] = ..., signer: _Optional[bytes] = ..., jtag_disabled: _Optional[bool] = ..., download_mode: _Optional[str] = ...) -> None: ...
+
+class Logs(_message.Message):
+    __slots__ = ("start", "data", "next", "end")
+    START_FIELD_NUMBER: _ClassVar[int]
+    DATA_FIELD_NUMBER: _ClassVar[int]
+    NEXT_FIELD_NUMBER: _ClassVar[int]
+    END_FIELD_NUMBER: _ClassVar[int]
+    start: int
+    data: bytes
+    next: int
+    end: int
+    def __init__(self, start: _Optional[int] = ..., data: _Optional[bytes] = ..., next: _Optional[int] = ..., end: _Optional[int] = ...) -> None: ...

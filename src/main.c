@@ -1,6 +1,7 @@
 #include "app.h"
 #include "datafs.h"
 #include "esp_log.h"
+#include "logbuf.h"
 #include "nvs_flash.h"
 
 static const char *TAG = "main";
@@ -28,6 +29,7 @@ static void factory_reset(void)
 
 void app_main(void)
 {
+    logbuf_start();
     if (app_factory_reset_pending()) {
         factory_reset();
     }

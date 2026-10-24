@@ -8,6 +8,7 @@
 #include "esp_log.h"
 #include "esp_system.h"
 #include "fw_info.h"
+#include "logbuf.h"
 #include "ota_update.h"
 #include "pb_decode.h"
 #include "pb_encode.h"
@@ -107,7 +108,7 @@ static void send_config(void)
 }
 
 static const char *const CAPABILITIES[] = {
-    "text", "strokes", "key_combo", "consumer", "keyboard_report", "config", "ota", "device_info",
+    "text", "strokes", "key_combo", "consumer", "keyboard_report", "config", "ota", "device_info", "logs",
 };
 
 static void send_hello(void)
@@ -268,6 +269,15 @@ static bridge_Result handle_request(const bridge_Request *req)
     case bridge_Request_get_device_info_tag: {
         bridge_Event event = { .which_msg = bridge_Event_device_info_tag };
         s_handlers.get_device_info(&event.device_info, s_ctx);
+        send_event(&event);
+        return bridge_Result_RESULT_OK;
+    }
+    case bridge_Request_get_logs_tag: {
+        bridge_Event event = { .which_msg = bridge_Event_logs_tag };
+        event.logs.data.size = (pb_size_t)logbuf_read(req->get_logs.since, event.logs.data.bytes,
+                                                      sizeof(event.logs.data.bytes), &event.logs.start,
+                                                      &event.logs.next);
+        event.logs.end = logbuf_end();
         send_event(&event);
         return bridge_Result_RESULT_OK;
     }
