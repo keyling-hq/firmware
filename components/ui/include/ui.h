@@ -50,6 +50,9 @@ typedef enum {
     UI_FIDO_SIGN_IN,
     UI_FIDO_SELECT,
     UI_FIDO_RESET,
+    UI_FIDO_PGP_SIGN,
+    UI_FIDO_PGP_DECRYPT,
+    UI_FIDO_PGP_AUTH,
 } ui_fido_request_t;
 
 /** A security key request waits for the user: shows what is asked and a hold-to-approve button. */

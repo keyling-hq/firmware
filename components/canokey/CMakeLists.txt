@@ -5,15 +5,19 @@ set(CK_GEN ${CMAKE_CURRENT_LIST_DIR}/generated)
 # Keyling's own authenticator model ID, reported in getInfo and in every registration.
 set(KEYLING_AAGUID "05a81905-d41d-4b55-b25c-13023c26d9de")
 
-# Only the FIDO applet: canokey's applets_install() (src/applets.c) is replaced by the port.
+# FIDO and OpenPGP: canokey's applets_install() (src/applets.c) is replaced by the port.
 file(GLOB CK_SRCS
     ${CK}/src/*.c
     ${CK}/applets/ctap/*.c
+    ${CK}/applets/openpgp/*.c
     ${CK_CRYPTO}/src/*.c
 )
-list(FILTER CK_SRCS EXCLUDE REGEX "/src/applets\\.c$|/ctap/ctap\\.c$|ml-dsa-65\\.c$|ml-kem-768\\.c$")
+list(FILTER CK_SRCS EXCLUDE REGEX
+    "/src/applets\\.c$|/ctap/ctap\\.c$|/openpgp/openpgp\\.c$|ml-dsa-65\\.c$|ml-kem-768\\.c$")
 list(APPEND CK_SRCS
     ${CK_GEN}/ctap.c
+    ${CK_GEN}/openpgp/openpgp.c
+    ${CK_GEN}/ccid.c
     ${CK}/interfaces/USB/class/ctaphid/ctaphid.c
     ${CK}/tinycbor/src/cborencoder.c
     ${CK}/tinycbor/src/cborparser.c
@@ -41,17 +45,27 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)
     file(WRITE ${CK_GEN}/tinycbor-version.h
         "#define TINYCBOR_VERSION_MAJOR 7\n#define TINYCBOR_VERSION_MINOR 0\n#define TINYCBOR_VERSION_PATCH 0\n")
 
-    # Copies of upstream files with CanoKey's AAGUID replaced by Keyling's.
+    # Copies of upstream files with CanoKey's identifiers replaced by Keyling's.
     string(REPLACE "-" "" aaguid_hex ${KEYLING_AAGUID})
     string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1, " aaguid_c ${aaguid_hex})
     function(copy_replacing src dst pattern replacement)
         file(READ ${src} text)
         string(REGEX REPLACE "${pattern}" "${replacement}" patched "${text}")
         if(patched STREQUAL text)
-            message(FATAL_ERROR "canokey: AAGUID not found in ${src}")
+            message(FATAL_ERROR "canokey: '${pattern}' not found in ${src}")
         endif()
         file(WRITE ${dst} "${patched}")
     endfunction()
+    # OpenPGP card manufacturer: CanoKeys' 0xF1D0 becomes 0xFF00, GnuPG's range for unassigned IDs.
+    # The copy keeps its directory's own key.h beside it, which canokey's core key.h would shadow.
+    copy_replacing(${CK}/applets/openpgp/openpgp.c ${CK_GEN}/openpgp/openpgp.c
+        "0xf1, 0xd0, ( *// manufacturer)"
+        "0xff, 0x00,\\1")
+    configure_file(${CK}/applets/openpgp/key.h ${CK_GEN}/openpgp/key.h COPYONLY)
+    # Smartcard ATR: historical bytes "Canokey" become "Keyling", with the checksum (TCK) to match.
+    copy_replacing(${CK}/interfaces/USB/class/ccid/ccid.c ${CK_GEN}/ccid.c
+        "0x43, 0x61, 0x6E, 0x6F, 0x6B, 0x65, 0x79, 0x99"
+        "0x4B, 0x65, 0x79, 0x6C, 0x69, 0x6E, 0x67, 0x96")
     copy_replacing(${CK}/applets/ctap/ctap.c ${CK_GEN}/ctap.c
         "static const uint8_t aaguid\\[\\] = {[^}]*};"
         "static const uint8_t aaguid[] = {${aaguid_c}};")
@@ -75,7 +89,9 @@ endif()
 
 idf_component_register(
     SRCS ${CK_SRCS}
+         "port/applet_stubs.c"
          "port/canokey_port.c"
+         "port/ccid_glue.c"
          "port/ctap_request.c"
          "port/ctaphid_glue.c"
          "port/crypto_stubs.c"
@@ -88,6 +104,7 @@ idf_component_register(
         "port/monocypher"
         ${CK}/include
         ${CK}/applets/ctap
+        ${CK}/interfaces/USB/class/ccid
         ${CK}/interfaces/USB/class/ctaphid
         ${CK}/interfaces/USB/class/kbdhid
         ${CK}/interfaces/USB/core/inc
@@ -104,7 +121,7 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
     ENABLE_PASS=0
     ENABLE_IFACE_CTAPHID=1
     ENABLE_IFACE_WEBUSB=0
-    ENABLE_IFACE_CCID=0
+    ENABLE_IFACE_CCID=1
     ENABLE_IFACE_KBDHID=0
     CTAP_RESTRICT_ALGORITHMS=1
     USE_MBEDCRYPTO
@@ -118,10 +135,11 @@ target_compile_options(${COMPONENT_LIB} PRIVATE -include ${CMAKE_CURRENT_LIST_DI
 # Upstream code warns under IDF's flags; only the port is held to -Werror.
 set_source_files_properties(${CK_SRCS} PROPERTIES COMPILE_OPTIONS "-Wno-error;-Wno-unused-function;-Wno-unused-variable")
 
-# port/ctap_request.c peeks at each CTAP command before canokey processes it;
+# port/ctap_request.c peeks at each CTAP command and smartcard APDU before canokey processes it;
 # port/canokey_port.c replaces the user presence wait.
 target_link_libraries(${COMPONENT_LIB} INTERFACE
     "-Wl,--wrap=ctap_process_cbor_stream_with_src"
     "-Wl,--wrap=ctap_process_cbor_stream_source_with_src"
     "-Wl,--wrap=wait_for_user_presence"
+    "-Wl,--wrap=process_apdu_from"
 )

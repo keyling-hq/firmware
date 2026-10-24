@@ -1,7 +1,8 @@
 /*
- * Notes the kind of each CTAP command and its relying party, so the presence prompt can say what
- * is being approved. canokey-core doesn't pass this to wait_for_user_presence(), so its two CBOR
- * entry points are wrapped at link time (-Wl,--wrap) and the request is peeked at before it runs.
+ * Notes the kind of each CTAP command and its relying party, and of each smartcard APDU, so the
+ * presence prompt can say what is being approved. canokey-core doesn't pass this to
+ * wait_for_user_presence(), so its entry points are wrapped at link time (-Wl,--wrap) and each
+ * request is peeked at before it runs.
  */
 #include <string.h>
 #include "ctap_request.h"
@@ -9,10 +10,17 @@
 #include <ctap.h>
 #include <ctap-internal.h>
 #include <ctaphid.h>
+#include <apdu.h>
 
 /* Canonical CTAP CBOR sorts keys, so the relying party is near the start of the request. */
 #define PEEK_BYTES          320
 #define WINDOWS_PROBE_RP    "SelectDevice"
+
+/* OpenPGP card commands that use a private key. */
+#define PGP_INS_PSO         0x2A
+#define PGP_PSO_SIGN        0x9E9A
+#define PGP_PSO_DECRYPT     0x8086
+#define PGP_INS_AUTH        0x88
 
 static uint8_t s_peek[PEEK_BYTES];
 static volatile canokey_request_t s_kind;
@@ -125,4 +133,22 @@ int __wrap_ctap_process_cbor_stream_source_with_src(const ctap_req_src_t *req_sr
     int rc = __real_ctap_process_cbor_stream_source_with_src(req_src, scratch, scratch_len, source, src);
     canokey_port_request_done();
     return rc;
+}
+
+void __real_process_apdu_from(CAPDU *capdu, RAPDU *rapdu, apdu_transport_t transport);
+
+/* Only OpenPGP is reachable over CCID; FIDO over CCID keeps the generic prompt. */
+void __wrap_process_apdu_from(CAPDU *capdu, RAPDU *rapdu, apdu_transport_t transport)
+{
+    s_rp_id[0] = '\0';
+    s_kind = CANOKEY_REQUEST_OTHER;
+    uint16_t p1p2 = (uint16_t)(capdu->p1 << 8 | capdu->p2);
+    if (capdu->ins == PGP_INS_PSO && p1p2 == PGP_PSO_SIGN) {
+        s_kind = CANOKEY_REQUEST_PGP_SIGN;
+    } else if (capdu->ins == PGP_INS_PSO && p1p2 == PGP_PSO_DECRYPT) {
+        s_kind = CANOKEY_REQUEST_PGP_DECRYPT;
+    } else if (capdu->ins == PGP_INS_AUTH) {
+        s_kind = CANOKEY_REQUEST_PGP_AUTH;
+    }
+    __real_process_apdu_from(capdu, rapdu, transport);
 }

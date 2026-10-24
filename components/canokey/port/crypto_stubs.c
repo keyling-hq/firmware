@@ -111,8 +111,14 @@ void K__x25519(K__x25519_key shared_secret, const K__x25519_key private_key, con
 
 /*
  * ML-DSA-65 needs the mldsa-native backend that ships inside upstream's TF-PSA-Crypto. The CTAP
- * applet is built with CTAP_RESTRICT_ALGORITHMS (ES256 and EdDSA only), so these never run.
+ * applet is built with CTAP_RESTRICT_ALGORITHMS (ES256 and EdDSA only) and OpenPGP has no ML-DSA
+ * key type, so these never run.
  */
+int ml_dsa_65_seed_to_tr(uint8_t tr[MLDSA_TRBYTES], const uint8_t seed[MLDSA_SEEDBYTES])
+{
+    return -1;
+}
+
 int ml_dsa_65_keygen_streaming(uint8_t *out, size_t out_size, mldsa_keygen_state_t *state, uint8_t *tr_out)
 {
     return -1;

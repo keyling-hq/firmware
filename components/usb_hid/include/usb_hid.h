@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include "esp_err.h"
 
@@ -42,6 +43,22 @@ bool usb_hid_fido_ready(void);
 
 /** Non-blocking: fails if the endpoint is busy or the device isn't mounted. */
 esp_err_t usb_hid_fido_send(const uint8_t report[USB_HID_FIDO_REPORT_SIZE]);
+
+/* Smartcard (CCID) interface: bulk packets in both directions. */
+#define USB_HID_CCID_PACKET_SIZE    64
+/** Largest CCID message (10-byte header + data) the device accepts, in either direction. */
+#define USB_HID_CCID_MAX_MESSAGE    3072
+
+/** Both called from the USB task: each packet the host sends, and each completed usb_hid_ccid_send(). */
+typedef void (*usb_hid_ccid_rx_cb_t)(const uint8_t *data, size_t len, void *ctx);
+typedef void (*usb_hid_ccid_tx_done_cb_t)(void *ctx);
+void usb_hid_ccid_set_callbacks(usb_hid_ccid_rx_cb_t rx, usb_hid_ccid_tx_done_cb_t tx_done, void *ctx);
+
+/**
+ * Starts a bulk IN transfer of len bytes (0 sends a zero-length packet). Non-blocking: data must be
+ * word aligned and stay valid until the tx_done callback; fails while a transfer is in progress.
+ */
+esp_err_t usb_hid_ccid_send(const uint8_t *data, size_t len);
 
 #ifdef __cplusplus
 }

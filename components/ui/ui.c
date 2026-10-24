@@ -493,13 +493,24 @@ static void show_fido(void)
         [UI_FIDO_SIGN_IN] = "Sign in to",
         [UI_FIDO_SELECT] = "Use this key?",
         [UI_FIDO_RESET] = "Erase security key?",
+        [UI_FIDO_PGP_SIGN] = "Sign with key?",
+        [UI_FIDO_PGP_DECRYPT] = "Decrypt with key?",
+        [UI_FIDO_PGP_AUTH] = "Log in with key?",
     };
+    static const char *const subtitles[] = {
+        [UI_FIDO_PGP_SIGN] = "OpenPGP",
+        [UI_FIDO_PGP_DECRYPT] = "OpenPGP",
+        [UI_FIDO_PGP_AUTH] = "SSH / OpenPGP",
+    };
+    const char *subtitle = s_fido_kind == UI_FIDO_REGISTER || s_fido_kind == UI_FIDO_SIGN_IN ? s_fido_rp_id
+                           : s_fido_kind < sizeof(subtitles) / sizeof(subtitles[0])            ? subtitles[s_fido_kind]
+                                                                                              : NULL;
     lv_obj_t *list = ui_menu_begin(titles[s_fido_kind], NULL);
-    if (s_fido_rp_id[0] && (s_fido_kind == UI_FIDO_REGISTER || s_fido_kind == UI_FIDO_SIGN_IN)) {
+    if (subtitle && subtitle[0]) {
         lv_obj_t *rp = lv_label_create(list);
         lv_obj_set_width(rp, lv_pct(100));
         lv_label_set_long_mode(rp, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
-        lv_label_set_text(rp, s_fido_rp_id);
+        lv_label_set_text(rp, subtitle);
     }
     const char *verb = s_fido_kind == UI_FIDO_RESET ? "Hold to erase" : "Hold to approve";
     lv_obj_t *hold = ui_hold_add(list, verb, UI_HOLD_CONFIRM_MS, fido_approve);
