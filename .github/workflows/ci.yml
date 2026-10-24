@@ -11,8 +11,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-        with:
-          submodules: true
+      - name: Protocol submodule
+        run: git submodule update --init --depth 1 proto
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
@@ -29,25 +29,3 @@ jobs:
           tools/.venv/bin/python tools/gen_proto.py
           git diff --exit-code -- components/protocol tools/bridge_pb2.py tools/bridge_pb2.pyi
 
-  build:
-    name: Build (${{ matrix.env }})
-    runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        env: [dev, hid]
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          submodules: true
-          fetch-depth: 0
-      - uses: ./.github/actions/setup-build
-      - name: Build
-        run: pio run -e ${{ matrix.env }}
-      - uses: actions/upload-artifact@v7
-        if: matrix.env == 'hid'
-        with:
-          name: firmware-hid
-          path: |
-            .pio/build/hid/firmware.bin
-            .pio/build/hid/firmware.elf
