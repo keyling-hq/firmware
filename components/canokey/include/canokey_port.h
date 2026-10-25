@@ -15,6 +15,9 @@ typedef enum {
     CANOKEY_REQUEST_SIGN_IN,    /* getAssertion */
     CANOKEY_REQUEST_SELECT,     /* the host asks which key to use (incl. Windows' probe) */
     CANOKEY_REQUEST_RESET,      /* authenticatorReset: erases all credentials */
+    CANOKEY_REQUEST_PGP_SIGN,   /* OpenPGP card: signature key */
+    CANOKEY_REQUEST_PGP_DECRYPT,
+    CANOKEY_REQUEST_PGP_AUTH,   /* authentication key, e.g. ssh through gpg-agent */
 } canokey_request_t;
 
 /**
@@ -25,7 +28,7 @@ typedef enum {
 typedef void (*canokey_presence_cb_t)(bool waiting, canokey_request_t kind, const char *rp_id, bool approved,
                                       void *ctx);
 
-/** Mounts the FIDO filesystem, installs the applets and starts the task serving CTAPHID. */
+/** Mounts the security key's storage, installs FIDO and OpenPGP and serves CTAPHID and CCID. */
 esp_err_t canokey_start(canokey_presence_cb_t presence_cb, void *ctx);
 
 /** "ok", or the startup step that failed (for display, since boot logs are often not visible). */
@@ -34,7 +37,7 @@ const char *canokey_status(void);
 /** Logs the security key's internal state (debugging aid). */
 void canokey_log_diagnostics(void);
 
-/** The user confirmed presence while a FIDO command was waiting for it. */
+/** The user confirmed presence while a FIDO or OpenPGP command was waiting for it. */
 void canokey_confirm_presence(void);
 
 #ifdef __cplusplus

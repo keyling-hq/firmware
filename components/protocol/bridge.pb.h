@@ -64,6 +64,13 @@ typedef struct _bridge_GetDeviceInfo {
     char dummy_field;
 } bridge_GetDeviceInfo;
 
+/* The dongle keeps its most recent log output in RAM. Positions count the bytes logged since
+ boot; replied to with a Logs event holding the next chunk from `since` on. To read everything,
+ start at 0 and repeat with Logs.next until it equals Logs.end. */
+typedef struct _bridge_GetLogs {
+    uint32_t since;
+} bridge_GetLogs;
+
 typedef PB_BYTES_ARRAY_T(32) bridge_OtaBegin_sha256_t;
 /* Firmware update: OtaBegin, then OtaData in order from offset 0, then OtaEnd. While an update
  is running, input requests fail with RESULT_FAILED. An update is abandoned if the session ends,
@@ -122,6 +129,7 @@ typedef struct _bridge_Request {
         bridge_GetConfig get_config;
         bridge_SetConfig set_config;
         bridge_GetDeviceInfo get_device_info;
+        bridge_GetLogs get_logs;
         bridge_OtaBegin ota_begin;
         bridge_OtaData ota_data;
         bridge_OtaEnd ota_end;
@@ -135,7 +143,7 @@ typedef struct _bridge_Hello {
     uint32_t max_frame; /* largest CMD frame payload the dongle accepts */
     char firmware_version[32];
     /* Request families this firmware handles, e.g. "text", "strokes", "key_combo", "consumer",
- "keyboard_report", "config", "ota", "device_info". */
+ "keyboard_report", "config", "ota", "device_info", "logs". */
     pb_size_t capabilities_count;
     char capabilities[12][16];
 } bridge_Hello;
@@ -218,6 +226,15 @@ typedef struct _bridge_DeviceInfo {
     bridge_Security security;
 } bridge_DeviceInfo;
 
+typedef PB_BYTES_ARRAY_T(900) bridge_Logs_data_t;
+typedef struct _bridge_Logs {
+    /* Position of data's first byte. Greater than GetLogs.since when older output was overwritten. */
+    uint32_t start;
+    bridge_Logs_data_t data; /* UTF-8 log text, may end inside a line */
+    uint32_t next; /* position after data: the `since` for the following request */
+    uint32_t end; /* position after the newest byte logged so far */
+} bridge_Logs;
+
 typedef struct _bridge_Event {
     pb_size_t which_msg;
     union {
@@ -227,6 +244,7 @@ typedef struct _bridge_Event {
         bridge_Status status;
         bridge_Config config;
         bridge_DeviceInfo device_info;
+        bridge_Logs logs;
     };
 } bridge_Event;
 
@@ -258,7 +276,9 @@ extern "C" {
 
 
 
+
 #define bridge_Ack_result_ENUMTYPE bridge_Result
+
 
 
 
@@ -277,6 +297,7 @@ extern "C" {
 #define bridge_SetConfig_init_default            {false, bridge_Config_init_default}
 #define bridge_Ping_init_default                 {0}
 #define bridge_GetDeviceInfo_init_default        {0}
+#define bridge_GetLogs_init_default              {0}
 #define bridge_OtaBegin_init_default             {0, {0, {0}}}
 #define bridge_OtaData_init_default              {0, {0, {0}}}
 #define bridge_OtaEnd_init_default               {0}
@@ -291,6 +312,7 @@ extern "C" {
 #define bridge_App_init_default                  {"", ""}
 #define bridge_SecurityKey_init_default          {""}
 #define bridge_Security_init_default             {false, 0, false, "", false, "", false, 0, false, {0, {0}}, false, 0, false, ""}
+#define bridge_Logs_init_default                 {0, {0, {0}}, 0, 0}
 #define bridge_Request_init_zero                 {0, 0, {bridge_Text_init_zero}}
 #define bridge_Text_init_zero                    {""}
 #define bridge_Strokes_init_zero                 {{0, {0}}}
@@ -301,6 +323,7 @@ extern "C" {
 #define bridge_SetConfig_init_zero               {false, bridge_Config_init_zero}
 #define bridge_Ping_init_zero                    {0}
 #define bridge_GetDeviceInfo_init_zero           {0}
+#define bridge_GetLogs_init_zero                 {0}
 #define bridge_OtaBegin_init_zero                {0, {0, {0}}}
 #define bridge_OtaData_init_zero                 {0, {0, {0}}}
 #define bridge_OtaEnd_init_zero                  {0}
@@ -315,6 +338,7 @@ extern "C" {
 #define bridge_App_init_zero                     {"", ""}
 #define bridge_SecurityKey_init_zero             {""}
 #define bridge_Security_init_zero                {false, 0, false, "", false, "", false, 0, false, {0, {0}}, false, 0, false, ""}
+#define bridge_Logs_init_zero                    {0, {0, {0}}, 0, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define bridge_Text_text_tag                     1
@@ -324,6 +348,7 @@ extern "C" {
 #define bridge_Consumer_usage_tag                1
 #define bridge_KeyboardReport_modifiers_tag      1
 #define bridge_KeyboardReport_keys_tag           2
+#define bridge_GetLogs_since_tag                 1
 #define bridge_OtaBegin_size_tag                 1
 #define bridge_OtaBegin_sha256_tag               2
 #define bridge_OtaData_offset_tag                1
@@ -343,6 +368,7 @@ extern "C" {
 #define bridge_Request_get_config_tag            31
 #define bridge_Request_set_config_tag            32
 #define bridge_Request_get_device_info_tag       33
+#define bridge_Request_get_logs_tag              34
 #define bridge_Request_ota_begin_tag             40
 #define bridge_Request_ota_data_tag              41
 #define bridge_Request_ota_end_tag               42
@@ -380,12 +406,17 @@ extern "C" {
 #define bridge_DeviceInfo_security_key_tag       10
 #define bridge_DeviceInfo_tx_power_dbm_tag       11
 #define bridge_DeviceInfo_security_tag           12
+#define bridge_Logs_start_tag                    1
+#define bridge_Logs_data_tag                     2
+#define bridge_Logs_next_tag                     3
+#define bridge_Logs_end_tag                      4
 #define bridge_Event_hello_tag                   1
 #define bridge_Event_credits_tag                 2
 #define bridge_Event_ack_tag                     3
 #define bridge_Event_status_tag                  10
 #define bridge_Event_config_tag                  30
 #define bridge_Event_device_info_tag             31
+#define bridge_Event_logs_tag                    32
 
 /* Struct field encoding specification for nanopb */
 #define bridge_Request_FIELDLIST(X, a) \
@@ -399,6 +430,7 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (msg,ping,ping),  30) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,get_config,get_config),  31) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,set_config,set_config),  32) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,get_device_info,get_device_info),  33) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (msg,get_logs,get_logs),  34) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,ota_begin,ota_begin),  40) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,ota_data,ota_data),  41) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,ota_end,ota_end),  42) \
@@ -414,6 +446,7 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (msg,ota_abort,ota_abort),  43)
 #define bridge_Request_msg_get_config_MSGTYPE bridge_GetConfig
 #define bridge_Request_msg_set_config_MSGTYPE bridge_SetConfig
 #define bridge_Request_msg_get_device_info_MSGTYPE bridge_GetDeviceInfo
+#define bridge_Request_msg_get_logs_MSGTYPE bridge_GetLogs
 #define bridge_Request_msg_ota_begin_MSGTYPE bridge_OtaBegin
 #define bridge_Request_msg_ota_data_MSGTYPE bridge_OtaData
 #define bridge_Request_msg_ota_end_MSGTYPE bridge_OtaEnd
@@ -467,6 +500,11 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  config,            1)
 #define bridge_GetDeviceInfo_CALLBACK NULL
 #define bridge_GetDeviceInfo_DEFAULT NULL
 
+#define bridge_GetLogs_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT32,   since,             1)
+#define bridge_GetLogs_CALLBACK NULL
+#define bridge_GetLogs_DEFAULT NULL
+
 #define bridge_OtaBegin_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   size,              1) \
 X(a, STATIC,   SINGULAR, BYTES,    sha256,            2)
@@ -503,7 +541,8 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (msg,credits,credits),   2) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,ack,ack),     3) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,status,status),  10) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,config,config),  30) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (msg,device_info,device_info),  31)
+X(a, STATIC,   ONEOF,    MESSAGE,  (msg,device_info,device_info),  31) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (msg,logs,logs),  32)
 #define bridge_Event_CALLBACK NULL
 #define bridge_Event_DEFAULT NULL
 #define bridge_Event_msg_hello_MSGTYPE bridge_Hello
@@ -512,6 +551,7 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (msg,device_info,device_info),  31)
 #define bridge_Event_msg_status_MSGTYPE bridge_Status
 #define bridge_Event_msg_config_MSGTYPE bridge_Config
 #define bridge_Event_msg_device_info_MSGTYPE bridge_DeviceInfo
+#define bridge_Event_msg_logs_MSGTYPE bridge_Logs
 
 #define bridge_Hello_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   protocol_version,   1) \
@@ -581,6 +621,14 @@ X(a, STATIC,   OPTIONAL, STRING,   download_mode,     7)
 #define bridge_Security_CALLBACK NULL
 #define bridge_Security_DEFAULT NULL
 
+#define bridge_Logs_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT32,   start,             1) \
+X(a, STATIC,   SINGULAR, BYTES,    data,              2) \
+X(a, STATIC,   SINGULAR, UINT32,   next,              3) \
+X(a, STATIC,   SINGULAR, UINT32,   end,               4)
+#define bridge_Logs_CALLBACK NULL
+#define bridge_Logs_DEFAULT NULL
+
 extern const pb_msgdesc_t bridge_Request_msg;
 extern const pb_msgdesc_t bridge_Text_msg;
 extern const pb_msgdesc_t bridge_Strokes_msg;
@@ -591,6 +639,7 @@ extern const pb_msgdesc_t bridge_GetConfig_msg;
 extern const pb_msgdesc_t bridge_SetConfig_msg;
 extern const pb_msgdesc_t bridge_Ping_msg;
 extern const pb_msgdesc_t bridge_GetDeviceInfo_msg;
+extern const pb_msgdesc_t bridge_GetLogs_msg;
 extern const pb_msgdesc_t bridge_OtaBegin_msg;
 extern const pb_msgdesc_t bridge_OtaData_msg;
 extern const pb_msgdesc_t bridge_OtaEnd_msg;
@@ -605,6 +654,7 @@ extern const pb_msgdesc_t bridge_DeviceInfo_msg;
 extern const pb_msgdesc_t bridge_App_msg;
 extern const pb_msgdesc_t bridge_SecurityKey_msg;
 extern const pb_msgdesc_t bridge_Security_msg;
+extern const pb_msgdesc_t bridge_Logs_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define bridge_Request_fields &bridge_Request_msg
@@ -617,6 +667,7 @@ extern const pb_msgdesc_t bridge_Security_msg;
 #define bridge_SetConfig_fields &bridge_SetConfig_msg
 #define bridge_Ping_fields &bridge_Ping_msg
 #define bridge_GetDeviceInfo_fields &bridge_GetDeviceInfo_msg
+#define bridge_GetLogs_fields &bridge_GetLogs_msg
 #define bridge_OtaBegin_fields &bridge_OtaBegin_msg
 #define bridge_OtaData_fields &bridge_OtaData_msg
 #define bridge_OtaEnd_fields &bridge_OtaEnd_msg
@@ -631,6 +682,7 @@ extern const pb_msgdesc_t bridge_Security_msg;
 #define bridge_App_fields &bridge_App_msg
 #define bridge_SecurityKey_fields &bridge_SecurityKey_msg
 #define bridge_Security_fields &bridge_Security_msg
+#define bridge_Logs_fields &bridge_Logs_msg
 
 /* Maximum encoded size of messages (where known) */
 #define BRIDGE_BRIDGE_PB_H_MAX_SIZE              bridge_Request_size
@@ -640,12 +692,14 @@ extern const pb_msgdesc_t bridge_Security_msg;
 #define bridge_Consumer_size                     6
 #define bridge_Credits_size                      8
 #define bridge_DeviceInfo_size                   550
-#define bridge_Event_size                        554
+#define bridge_Event_size                        925
 #define bridge_GetConfig_size                    0
 #define bridge_GetDeviceInfo_size                0
+#define bridge_GetLogs_size                      6
 #define bridge_Hello_size                        249
 #define bridge_KeyCombo_size                     14
 #define bridge_KeyboardReport_size               14
+#define bridge_Logs_size                         921
 #define bridge_OtaAbort_size                     0
 #define bridge_OtaBegin_size                     40
 #define bridge_OtaData_size                      1009

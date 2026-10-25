@@ -7,28 +7,24 @@
 #include "esp_check.h"
 #include "esp_log.h"
 #include "esp_mac.h"
-#include "esp_system.h"
-#include "soc/rtc_cntl_reg.h"
-#include "soc/usb_serial_jtag_reg.h"
 #include "tinyusb.h"
 #include "tinyusb_default_config.h"
-#include "tinyusb_cdc_acm.h"
-#include "tinyusb_console.h"
+#include "device/usbd_pvt.h"
 
 static const char *TAG = "usb_hid";
 
 #define USB_PID                 0x4F01
+/* Changes whenever the interface set does, so hosts don't reuse cached driver bindings. */
+#define USB_BCD_DEVICE          0x0200
 #define HID_EP_SIZE             16
 #define HID_READY_TIMEOUT_MS    100
-#define DOWNLOAD_TOUCH_BAUD     1200
 
 #define FIDO_POLL_MS            5
 
 enum {
-    ITF_NUM_CDC = 0,
-    ITF_NUM_CDC_DATA,
-    ITF_NUM_HID,
+    ITF_NUM_HID = 0,
     ITF_NUM_FIDO,
+    ITF_NUM_CCID,
     ITF_NUM_TOTAL,
 };
 
@@ -38,23 +34,36 @@ enum {
     HID_INSTANCE_FIDO,
 };
 
-#define EPNUM_CDC_NOTIF 0x81
-#define EPNUM_CDC_OUT   0x02
-#define EPNUM_CDC_IN    0x82
-#define EPNUM_HID       0x83
-#define EPNUM_FIDO_OUT  0x04
-#define EPNUM_FIDO_IN   0x84
+#define EPNUM_HID       0x81
+#define EPNUM_FIDO_OUT  0x02
+#define EPNUM_FIDO_IN   0x82
+#define EPNUM_CCID_OUT  0x03
+#define EPNUM_CCID_IN   0x83
 
 enum {
     STRID_LANGID = 0,
     STRID_MANUFACTURER,
     STRID_PRODUCT,
     STRID_SERIAL,
-    STRID_CDC,
     STRID_HID,
     STRID_FIDO,
+    STRID_CCID,
     STRID_COUNT,
 };
+
+/*
+ * USB CCID 1.1 interface with one slot, T=1, extended APDUs and no interrupt endpoint (the card
+ * can't be removed). Byte layout as in canokey-core's descriptor.
+ */
+#define TUD_CCID_DESC_LEN   (9 + 54 + 7 + 7)
+#define TUD_CCID_DESCRIPTOR(itf, stridx, epout, epin, epsize, max_message, max_ifsd)                              \
+    9, TUSB_DESC_INTERFACE, itf, 0, 2, TUSB_CLASS_SMART_CARD, 0, 0, stridx,                                       \
+    54, 0x21, U16_TO_U8S_LE(0x0110), 0, 0x07, U32_TO_U8S_LE(0x00000002), U32_TO_U8S_LE(4000),                     \
+    U32_TO_U8S_LE(4000), 0, U32_TO_U8S_LE(307200), U32_TO_U8S_LE(307200), 0, U32_TO_U8S_LE(max_ifsd),             \
+    U32_TO_U8S_LE(0), U32_TO_U8S_LE(0), U32_TO_U8S_LE(0x000400FE), U32_TO_U8S_LE(max_message), 0xFF, 0xFF,       \
+    U16_TO_U8S_LE(0), 0, 1,                                                                                       \
+    7, TUSB_DESC_ENDPOINT, epin, TUSB_XFER_BULK, U16_TO_U8S_LE(epsize), 0,                                        \
+    7, TUSB_DESC_ENDPOINT, epout, TUSB_XFER_BULK, U16_TO_U8S_LE(epsize), 0
 
 enum {
     REPORT_ID_KEYBOARD = 1,
@@ -72,28 +81,25 @@ static const uint8_t s_fido_report_desc[] = {
     TUD_HID_REPORT_DESC_FIDO_U2F(USB_HID_FIDO_REPORT_SIZE),
 };
 
-#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_CDC_DESC_LEN + TUD_HID_DESC_LEN + TUD_HID_INOUT_DESC_LEN)
+#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN + TUD_HID_INOUT_DESC_LEN + TUD_CCID_DESC_LEN)
 
 static const uint8_t s_config_desc[] = {
     TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
-    TUD_CDC_DESCRIPTOR(ITF_NUM_CDC, STRID_CDC, EPNUM_CDC_NOTIF, 8, EPNUM_CDC_OUT, EPNUM_CDC_IN, 64),
     TUD_HID_DESCRIPTOR(ITF_NUM_HID, STRID_HID, HID_ITF_PROTOCOL_NONE, sizeof(s_hid_report_desc), EPNUM_HID, HID_EP_SIZE, 1),
     TUD_HID_INOUT_DESCRIPTOR(ITF_NUM_FIDO, STRID_FIDO, HID_ITF_PROTOCOL_NONE, sizeof(s_fido_report_desc),
                              EPNUM_FIDO_OUT, EPNUM_FIDO_IN, USB_HID_FIDO_REPORT_SIZE, FIDO_POLL_MS),
+    TUD_CCID_DESCRIPTOR(ITF_NUM_CCID, STRID_CCID, EPNUM_CCID_OUT, EPNUM_CCID_IN, USB_HID_CCID_PACKET_SIZE,
+                        USB_HID_CCID_MAX_MESSAGE, USB_HID_CCID_MAX_MESSAGE - 10),
 };
 
-/* IAD class codes are required for a composite device that contains CDC. */
 static const tusb_desc_device_t s_device_desc = {
     .bLength = sizeof(tusb_desc_device_t),
     .bDescriptorType = TUSB_DESC_DEVICE,
     .bcdUSB = 0x0200,
-    .bDeviceClass = TUSB_CLASS_MISC,
-    .bDeviceSubClass = MISC_SUBCLASS_COMMON,
-    .bDeviceProtocol = MISC_PROTOCOL_IAD,
     .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
     .idVendor = TINYUSB_ESPRESSIF_VID,
     .idProduct = USB_PID,
-    .bcdDevice = 0x0100,
+    .bcdDevice = USB_BCD_DEVICE,
     .iManufacturer = STRID_MANUFACTURER,
     .iProduct = STRID_PRODUCT,
     .iSerialNumber = STRID_SERIAL,
@@ -107,9 +113,9 @@ static const char *s_strings[STRID_COUNT] = {
     [STRID_MANUFACTURER] = "Keyling",
     [STRID_PRODUCT] = "Keyling",
     [STRID_SERIAL] = s_serial,
-    [STRID_CDC] = "Console",
     [STRID_HID] = "Keyboard",
     [STRID_FIDO] = "Security key",
+    [STRID_CCID] = "Smartcard",
 };
 
 static SemaphoreHandle_t s_lock;
@@ -155,29 +161,109 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_
     }
 }
 
-/*
- * Hands the PHY back to USB-Serial-JTAG and reboots into the ROM download mode, so esptool
- * sees the standard serial/JTAG port and can reset back into the app after flashing.
- */
-static void reboot_to_download_task(void *arg)
+/* ---- CCID: an application class driver, TinyUSB has none ------------------ */
+
+static uint8_t s_ccid_ep_in;
+static uint8_t s_ccid_ep_out;
+static CFG_TUSB_MEM_ALIGN uint8_t s_ccid_rx_buf[USB_HID_CCID_PACKET_SIZE];
+static usb_hid_ccid_rx_cb_t s_ccid_rx_cb;
+static usb_hid_ccid_tx_done_cb_t s_ccid_tx_done_cb;
+static void *s_ccid_ctx;
+
+static void ccid_init(void)
 {
-    vTaskDelay(pdMS_TO_TICKS(100));
-    tinyusb_driver_uninstall();
-
-    CLEAR_PERI_REG_MASK(RTC_CNTL_USB_CONF_REG,
-                        RTC_CNTL_SW_HW_USB_PHY_SEL | RTC_CNTL_SW_USB_PHY_SEL | RTC_CNTL_USB_PAD_ENABLE);
-    CLEAR_PERI_REG_MASK(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_PHY_SEL);
-    SET_PERI_REG_MASK(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_USB_PAD_ENABLE | USB_SERIAL_JTAG_DP_PULLUP);
-
-    REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
-    esp_restart();
 }
 
-static void cdc_line_coding_cb(int itf, cdcacm_event_t *event)
+static bool ccid_deinit(void)
 {
-    if (event->line_coding_changed_data.p_line_coding->bit_rate == DOWNLOAD_TOUCH_BAUD) {
-        xTaskCreate(reboot_to_download_task, "usb_dl_reboot", 3072, NULL, 10, NULL);
+    return true;
+}
+
+static void ccid_reset(uint8_t rhport)
+{
+    s_ccid_ep_in = 0;
+    s_ccid_ep_out = 0;
+}
+
+static uint16_t ccid_open(uint8_t rhport, tusb_desc_interface_t const *itf, uint16_t max_len)
+{
+    TU_VERIFY(itf->bInterfaceClass == TUSB_CLASS_SMART_CARD, 0);
+    uint8_t const *p = (uint8_t const *)itf;
+    uint16_t len = 0;
+    do {
+        len += tu_desc_len(p);
+        p = tu_desc_next(p);
+    } while (len < max_len && tu_desc_type(p) != TUSB_DESC_ENDPOINT);
+    TU_ASSERT(usbd_open_edpt_pair(rhport, p, 2, TUSB_XFER_BULK, &s_ccid_ep_out, &s_ccid_ep_in), 0);
+    len += 2 * sizeof(tusb_desc_endpoint_t);
+    TU_ASSERT(usbd_edpt_xfer(rhport, s_ccid_ep_out, s_ccid_rx_buf, sizeof(s_ccid_rx_buf), false), 0);
+    return len;
+}
+
+#define CCID_REQUEST_ABORT  0x01
+
+/* ABORT is acknowledged; the PC_to_RDR_Abort that follows on the bulk pipe is the card's business. */
+static bool ccid_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_request_t const *request)
+{
+    if (request->bmRequestType_bit.type != TUSB_REQ_TYPE_CLASS || request->bRequest != CCID_REQUEST_ABORT) {
+        return false;
     }
+    if (stage == CONTROL_STAGE_SETUP) {
+        return tud_control_status(rhport, request);
+    }
+    return true;
+}
+
+static bool ccid_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes)
+{
+    if (ep_addr == s_ccid_ep_out) {
+        if (result == XFER_RESULT_SUCCESS && s_ccid_rx_cb) {
+            s_ccid_rx_cb(s_ccid_rx_buf, xferred_bytes, s_ccid_ctx);
+        }
+        return usbd_edpt_xfer(rhport, s_ccid_ep_out, s_ccid_rx_buf, sizeof(s_ccid_rx_buf), false);
+    }
+    if (ep_addr == s_ccid_ep_in && s_ccid_tx_done_cb) {
+        s_ccid_tx_done_cb(s_ccid_ctx);
+    }
+    return true;
+}
+
+static const usbd_class_driver_t s_ccid_driver = {
+    .name = "CCID",
+    .init = ccid_init,
+    .deinit = ccid_deinit,
+    .reset = ccid_reset,
+    .open = ccid_open,
+    .control_xfer_cb = ccid_control_xfer_cb,
+    .xfer_cb = ccid_xfer_cb,
+};
+
+usbd_class_driver_t const *usbd_app_driver_get_cb(uint8_t *driver_count)
+{
+    *driver_count = 1;
+    return &s_ccid_driver;
+}
+
+void usb_hid_ccid_set_callbacks(usb_hid_ccid_rx_cb_t rx, usb_hid_ccid_tx_done_cb_t tx_done, void *ctx)
+{
+    s_ccid_ctx = ctx;
+    s_ccid_rx_cb = rx;
+    s_ccid_tx_done_cb = tx_done;
+}
+
+esp_err_t usb_hid_ccid_send(const uint8_t *data, size_t len)
+{
+    if (!tud_mounted() || !s_ccid_ep_in || len > UINT16_MAX) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!usbd_edpt_claim(0, s_ccid_ep_in)) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    bool ok = usbd_edpt_xfer(0, s_ccid_ep_in, (uint8_t *)data, (uint16_t)len, false);
+    if (!ok) {
+        usbd_edpt_release(0, s_ccid_ep_in);
+    }
+    return ok ? ESP_OK : ESP_FAIL;
 }
 
 esp_err_t usb_hid_start(usb_hid_mount_cb_t cb, void *ctx)
@@ -198,14 +284,6 @@ esp_err_t usb_hid_start(usb_hid_mount_cb_t cb, void *ctx)
     cfg.descriptor.string = s_strings;
     cfg.descriptor.string_count = STRID_COUNT;
     ESP_RETURN_ON_ERROR(tinyusb_driver_install(&cfg), TAG, "driver install");
-
-    const tinyusb_config_cdcacm_t cdc_cfg = {
-        .cdc_port = TINYUSB_CDC_ACM_0,
-        .callback_line_coding_changed = cdc_line_coding_cb,
-    };
-    ESP_RETURN_ON_ERROR(tinyusb_cdcacm_init(&cdc_cfg), TAG, "cdc init");
-    ESP_RETURN_ON_ERROR(tinyusb_console_init(TINYUSB_CDC_ACM_0), TAG, "console");
-
     ESP_LOGI(TAG, "started");
     return ESP_OK;
 }

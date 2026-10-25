@@ -58,3 +58,12 @@ esp_err_t usb_hid_fido_send(const uint8_t report[USB_HID_FIDO_REPORT_SIZE])
 {
     return ESP_ERR_NOT_SUPPORTED;
 }
+
+void usb_hid_ccid_set_callbacks(usb_hid_ccid_rx_cb_t rx, usb_hid_ccid_tx_done_cb_t tx_done, void *ctx)
+{
+}
+
+esp_err_t usb_hid_ccid_send(const uint8_t *data, size_t len)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}

@@ -481,6 +481,9 @@ static void fido_presence_cb(bool waiting, canokey_request_t kind, const char *r
         [CANOKEY_REQUEST_SIGN_IN] = UI_FIDO_SIGN_IN,
         [CANOKEY_REQUEST_SELECT] = UI_FIDO_SELECT,
         [CANOKEY_REQUEST_RESET] = UI_FIDO_RESET,
+        [CANOKEY_REQUEST_PGP_SIGN] = UI_FIDO_PGP_SIGN,
+        [CANOKEY_REQUEST_PGP_DECRYPT] = UI_FIDO_PGP_DECRYPT,
+        [CANOKEY_REQUEST_PGP_AUTH] = UI_FIDO_PGP_AUTH,
     };
     if (waiting) {
         ESP_LOGI(TAG, "fido: request %d for '%s' waits for presence", kind, rp_id);

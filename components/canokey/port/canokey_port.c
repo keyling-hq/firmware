@@ -1,12 +1,15 @@
 #include <string.h>
 #include "canokey_port.h"
 #include "ctap_request.h"
+#include "ccid_glue.h"
 #include "ctaphid_glue.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "esp_attr.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "esp_mac.h"
 #include "esp_system.h"
 #include "esp_partition.h"
 #include "esp_random.h"
@@ -18,8 +21,10 @@
 #include <apdu.h>
 #include <applets.h>
 #include <ctap.h>
+#include <openpgp.h>
 #include <ctap-internal.h>
 #include <ctaphid.h>
+#include <ccid.h>
 #include <device.h>
 #include <device-config.h>
 #include <fs.h>
@@ -57,11 +62,12 @@ static uint8_t s_cipher_buf[FS_CACHE_SIZE];
 static struct lfs_config s_lfs_cfg;
 static esp_aes_xts_context s_xts_enc;
 static esp_aes_xts_context s_xts_dec;
-static volatile bool s_erase_pending;
 
 static const char *s_status = "not started";
 static TaskHandle_t s_task;
 static volatile bool s_running;
+static volatile uint32_t s_loop_tick;
+#define STUCK_MS            5000
 static int s_boot_fs_used;
 static int s_boot_fs_size;
 static int s_boot_cert_size;
@@ -113,8 +119,34 @@ void led_off(void)
 {
 }
 
+/*
+ * One-shot timer for the CCID time extensions sent while an APDU takes long. The lock lets
+ * device_set_timeout(NULL, 0) wait out a callback already running, which re-arms itself.
+ */
+static esp_timer_handle_t s_timeout_timer;
+static SemaphoreHandle_t s_timeout_lock;
+static void (*s_timeout_cb)(void);
+
+static void timeout_timer_cb(void *arg)
+{
+    xSemaphoreTakeRecursive(s_timeout_lock, portMAX_DELAY);
+    void (*callback)(void) = s_timeout_cb;
+    s_timeout_cb = NULL;
+    if (callback) {
+        callback();
+    }
+    xSemaphoreGiveRecursive(s_timeout_lock);
+}
+
 void device_set_timeout(void (*callback)(void), uint16_t timeout)
 {
+    xSemaphoreTakeRecursive(s_timeout_lock, portMAX_DELAY);
+    esp_timer_stop(s_timeout_timer);
+    s_timeout_cb = callback;
+    if (callback) {
+        esp_timer_start_once(s_timeout_timer, timeout * 1000ULL);
+    }
+    xSemaphoreGiveRecursive(s_timeout_lock);
 }
 
 uint32_t random32(void)
@@ -186,17 +218,17 @@ int platform_config_page_write(const void *page, size_t len)
 
 /*
  * Everything on the partition is encrypted with XTS-AES-128 in 16-byte units, tweaked by the
- * unit's offset: the scheme of the chip's flash encryption, keyed from the keystore. A new salt
- * (after a security key reset) or a new keystore root makes all earlier contents unreadable.
+ * unit's offset: the scheme of the chip's flash encryption, keyed from the keystore. A new keystore
+ * root or salt (factory reset) makes all earlier contents unreadable.
  */
-static esp_err_t storage_key_load(bool renew)
+static esp_err_t storage_key_load(void)
 {
     uint8_t salt[STORAGE_SALT_SIZE];
     nvs_handle_t nvs;
     ESP_RETURN_ON_ERROR(nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs), TAG, "nvs");
     size_t len = sizeof(salt);
     esp_err_t err = ESP_OK;
-    if (renew || nvs_get_blob(nvs, NVS_STORAGE_SALT, salt, &len) != ESP_OK || len != sizeof(salt)) {
+    if (nvs_get_blob(nvs, NVS_STORAGE_SALT, salt, &len) != ESP_OK || len != sizeof(salt)) {
         esp_fill_random(salt, sizeof(salt));
         err = nvs_set_blob(nvs, NVS_STORAGE_SALT, salt, sizeof(salt));
         if (err == ESP_OK) {
@@ -290,7 +322,7 @@ static esp_err_t fs_start(void)
     s_part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, PARTITION_LABEL);
     ESP_RETURN_ON_FALSE(s_part, ESP_ERR_NOT_FOUND, TAG, "no '%s' partition", PARTITION_LABEL);
     /* Without the key a failed mount must not lead to a format. */
-    ESP_RETURN_ON_ERROR(storage_key_load(false), TAG, "storage key");
+    ESP_RETURN_ON_ERROR(storage_key_load(), TAG, "storage key");
 
     s_lfs_cfg = (struct lfs_config){
         .read = lfs_read,
@@ -322,15 +354,24 @@ static esp_err_t fs_start(void)
 
 static char s_status_buf[32];
 
-/* Replaces canokey's applets_install(): only the FIDO applet is built. */
+static esp_err_t install_failed(const char *applet, int rc)
+{
+    snprintf(s_status_buf, sizeof(s_status_buf), "%s install %d", applet, rc);
+    s_status = s_status_buf;
+    ESP_LOGE(TAG, "%s", s_status_buf);
+    return ESP_FAIL;
+}
+
+/* Replaces canokey's applets_install(): only FIDO and OpenPGP are built. */
 static esp_err_t install_applets(void)
 {
     int rc = ctap_install(0);
     if (rc != 0) {
-        snprintf(s_status_buf, sizeof(s_status_buf), "ctap install %d", rc);
-        s_status = s_status_buf;
-        ESP_LOGE(TAG, "%s", s_status_buf);
-        return ESP_FAIL;
+        return install_failed("ctap", rc);
+    }
+    rc = openpgp_install(0);
+    if (rc < 0) {
+        return install_failed("openpgp", rc);
     }
     return ESP_OK;
 }
@@ -338,6 +379,7 @@ static esp_err_t install_applets(void)
 void applets_poweroff(void)
 {
     ctap_poweroff();
+    openpgp_poweroff();
 }
 
 /* Settings the admin applet would otherwise hold. */
@@ -349,6 +391,34 @@ uint8_t device_config_is_webauthn_enabled(void)
 uint8_t device_config_is_led_normally_on(void)
 {
     return 0;
+}
+
+uint8_t device_config_is_openpgp_ccid_enabled(void)
+{
+    return 1;
+}
+
+uint8_t device_config_is_openpgp_nfc_enabled(void)
+{
+    return 0;
+}
+
+uint8_t device_config_is_piv_ccid_enabled(void)
+{
+    return 0;
+}
+
+uint8_t device_config_is_piv_nfc_enabled(void)
+{
+    return 0;
+}
+
+/* The OpenPGP card's serial number: the low bytes of the chip's MAC address, stable per device. */
+void device_config_fill_serial(uint8_t *buf)
+{
+    uint8_t mac[6] = { 0 };
+    esp_efuse_mac_get_default(mac);
+    memcpy(buf, mac + 2, 4);
 }
 
 /* ---- attestation --------------------------------------------------------- */
@@ -432,35 +502,7 @@ uint8_t __wrap_wait_for_user_presence(uint8_t entry)
     stop_blinking();
     s_presence_waiting = false;
     report_presence(false, result == USER_PRESENCE_OK);
-    if (result == USER_PRESENCE_OK) {
-        canokey_request_t kind;
-        const char *rp_id;
-        ctap_request_current(&kind, &rp_id);
-        s_erase_pending = kind == CANOKEY_REQUEST_RESET;
-    }
     return result;
-}
-
-/*
- * canokey's reset deletes its files, but their old blocks would stay readable with the same key.
- * After an approved reset the storage gets a new key and a fresh filesystem instead.
- */
-static void erase_storage(void)
-{
-    ESP_LOGW(TAG, "security key reset: erasing its storage");
-    if (storage_key_load(true) != ESP_OK || format_storage() != 0 || fs_mount(&s_lfs_cfg) != 0 ||
-        ctap_install(1) != 0 || install_dev_attestation() != ESP_OK) {
-        s_status = "reset failed";
-        ESP_LOGE(TAG, "%s", s_status);
-    }
-}
-
-void canokey_port_request_done(void)
-{
-    if (s_erase_pending) {
-        s_erase_pending = false;
-        erase_storage();
-    }
 }
 
 void canokey_confirm_presence(void)
@@ -469,6 +511,40 @@ void canokey_confirm_presence(void)
         set_touch_result(TOUCH_SHORT);
     }
 }
+/* ---- applet session -------------------------------------------------------- */
+
+/* canokey lets another transport take over a session idle for 2 s, so this always ends with it. */
+#define SESSION_WAIT_MS     2500
+
+int __real_device_applet_session_acquire(device_applet_session_owner_t owner);
+
+/*
+ * Replaces canokey-core's device_applet_session_acquire() for its callers (linked with -Wl,--wrap).
+ * A FIDO request arriving while a smartcard command is in progress waited for nothing upstream
+ * and was answered busy. Hosts probe the card right after plug-in, exactly when Windows' security
+ * key reset needs the FIDO interface, so the smartcard command is run to completion first.
+ */
+int __wrap_device_applet_session_acquire(device_applet_session_owner_t owner)
+{
+    int rc = __real_device_applet_session_acquire(owner);
+    if (rc == 0 || owner != DEVICE_APPLET_SESSION_CTAPHID || device_applet_session_owner() != DEVICE_APPLET_SESSION_CCID) {
+        return rc;
+    }
+    uint32_t start = device_get_tick();
+    while (rc != 0 && device_get_tick() - start < SESSION_WAIT_MS) {
+        ccid_glue_poll();
+        /* A response the host hasn't collected yet would make every new one wait for it. */
+        if (!ccid_glue_sending()) {
+            CCID_Loop();
+        }
+        device_delay(1);
+        rc = __real_device_applet_session_acquire(owner);
+    }
+    ESP_LOGW(TAG, "FIDO waited %lu ms for a smartcard command: %s", (unsigned long)(device_get_tick() - start),
+             rc == 0 ? "served" : "answered busy");
+    return rc;
+}
+
 /* ---- task ------------------------------------------------------------------ */
 
 /* Runs on the canokey task: its install paths need several KB of stack. */
@@ -477,7 +553,7 @@ static esp_err_t startup(void)
     s_status = "fs fail";
     ESP_RETURN_ON_ERROR(fs_start(), TAG, "fs");
     device_init();
-    /* Without CCID nothing else points shared_io_buffer at memory: this selects the core's fallback. */
+    /* Points the APDU buffer shared by the applets at the CCID buffer. */
     init_apdu_buffer();
     ESP_RETURN_ON_ERROR(install_applets(), TAG, "applets install");
     s_status = "attest fail";
@@ -487,9 +563,10 @@ static esp_err_t startup(void)
     s_boot_cert_size = get_file_size(CTAP_CERT_FILE);
     s_status = "usb fail";
     ESP_RETURN_ON_ERROR(ctaphid_glue_start(), TAG, "ctaphid");
+    ESP_RETURN_ON_ERROR(ccid_glue_start(), TAG, "ccid");
 
     s_status = "ok";
-    ESP_LOGI(TAG, "started: FIDO filesystem %u KB", (unsigned)(s_part->size / 1024));
+    ESP_LOGI(TAG, "started: storage %u KB", (unsigned)(s_part->size / 1024));
     return ESP_OK;
 }
 
@@ -527,6 +604,8 @@ static void canokey_task(void *arg)
     }
     s_running = true;
     for (;;) {
+        s_loop_tick = device_get_tick();
+        ccid_glue_poll();
         device_loop();
         device_update_led();
         vTaskDelay(pdMS_TO_TICKS(LOOP_IDLE_MS));
@@ -549,9 +628,18 @@ void canokey_log_diagnostics(void)
              s_boot_cert_size);
     ESP_LOGI(TAG, "presence: waiting=%d blinking=%d touch=%d", s_presence_waiting, device_is_blinking(),
              get_touch_result());
-    ESP_LOGI(TAG, "task: stack free %u bytes, tick %lu", (unsigned)uxTaskGetStackHighWaterMark(s_task),
-             (unsigned long)device_get_tick());
+    uint32_t since_loop = device_get_tick() - s_loop_tick;
+    ESP_LOGI(TAG, "task: stack free %u bytes, tick %lu, loop ran %lu ms ago",
+             (unsigned)uxTaskGetStackHighWaterMark(s_task), (unsigned long)device_get_tick(),
+             (unsigned long)since_loop);
     ctaphid_glue_log_diagnostics();
+    ccid_glue_log_diagnostics();
+    /* A stuck task is only found in a core dump: crashing now saves every task's stack. */
+    if (since_loop > STUCK_MS && !s_presence_waiting) {
+        ESP_LOGE(TAG, "task stuck for %lu ms: aborting for a core dump", (unsigned long)since_loop);
+        vTaskDelay(pdMS_TO_TICKS(100));
+        abort();
+    }
 }
 
 esp_err_t canokey_start(canokey_presence_cb_t presence_cb, void *ctx)
@@ -559,6 +647,13 @@ esp_err_t canokey_start(canokey_presence_cb_t presence_cb, void *ctx)
     s_presence_cb = presence_cb;
     s_presence_ctx = ctx;
     s_status = "starting";
+    s_timeout_lock = xSemaphoreCreateRecursiveMutex();
+    ESP_RETURN_ON_FALSE(s_timeout_lock, ESP_ERR_NO_MEM, TAG, "timeout lock");
+    const esp_timer_create_args_t timer_args = {
+        .callback = timeout_timer_cb,
+        .name = "canokey_timeout",
+    };
+    ESP_RETURN_ON_ERROR(esp_timer_create(&timer_args, &s_timeout_timer), TAG, "timeout timer");
     BaseType_t ok = xTaskCreate(canokey_task, "canokey", TASK_STACK, NULL, TASK_PRIO, &s_task);
     return ok == pdPASS ? ESP_OK : ESP_ERR_NO_MEM;
 }
