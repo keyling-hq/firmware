@@ -4,6 +4,7 @@
  */
 #include <string.h>
 #include "ctaphid_glue.h"
+#include "ccid_glue.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "esp_check.h"
@@ -34,6 +35,7 @@ static bool s_overflow_logged;
 static volatile uint32_t s_rx_count;
 static volatile uint32_t s_tx_count;
 static volatile uint32_t s_tx_busy;
+static volatile uint32_t s_busy_count;
 
 static void rx_cb(const uint8_t report[USB_HID_FIDO_REPORT_SIZE], void *ctx)
 {
@@ -57,6 +59,14 @@ static uint8_t wait_idle(int max_ms)
 
 uint8_t USBD_CTAPHID_SendReport(USBD_HandleTypeDef *pdev, uint8_t *report, uint16_t len)
 {
+    if (len >= 8 && report[4] == CTAPHID_ERROR && report[7] == ERR_CHANNEL_BUSY) {
+        s_busy_count++;
+        ESP_LOGW(TAG, "answered busy (applet session owner %d)", device_applet_session_owner());
+    }
+    /* First packet of a CBOR response: byte 7 is the CTAP status. */
+    if (len >= 8 && report[4] == CTAPHID_CBOR && report[7] != 0) {
+        ESP_LOGW(TAG, "CTAP response status 0x%02x", report[7]);
+    }
     if (wait_idle(SEND_IDLE_MS) != USBD_OK) {
         s_tx_busy++;
         return USBD_BUSY;
@@ -73,8 +83,9 @@ uint8_t USBD_CTAPHID_SendReport(USBD_HandleTypeDef *pdev, uint8_t *report, uint1
 
 void ctaphid_glue_log_diagnostics(void)
 {
-    ESP_LOGI(TAG, "reports: %lu received, %lu sent, %lu send failures, %u queued, endpoint %s",
+    ESP_LOGI(TAG, "reports: %lu received, %lu sent, %lu send failures, %lu busy replies, %u queued, endpoint %s",
              (unsigned long)s_rx_count, (unsigned long)s_tx_count, (unsigned long)s_tx_busy,
+             (unsigned long)s_busy_count,
              s_rx ? (unsigned)uxQueueMessagesWaiting(s_rx) : 0, usb_hid_fido_ready() ? "ready" : "busy");
 }
 
@@ -94,6 +105,8 @@ uint8_t USBD_CTAPHID_WaitIdle(void)
  */
 void USBD_CTAPHID_ServiceReceive(void)
 {
+    /* A CCID response that has finished sending must release the applet session first. */
+    ccid_glue_poll();
     for (;;) {
         if (!s_has_pending) {
             if (xQueueReceive(s_rx, s_pending, pdMS_TO_TICKS(RX_WAIT_MS)) != pdTRUE) {

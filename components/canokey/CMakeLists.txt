@@ -136,10 +136,11 @@ target_compile_options(${COMPONENT_LIB} PRIVATE -include ${CMAKE_CURRENT_LIST_DI
 set_source_files_properties(${CK_SRCS} PROPERTIES COMPILE_OPTIONS "-Wno-error;-Wno-unused-function;-Wno-unused-variable")
 
 # port/ctap_request.c peeks at each CTAP command and smartcard APDU before canokey processes it;
-# port/canokey_port.c replaces the user presence wait.
+# port/canokey_port.c replaces the user presence wait and lets FIDO wait for a smartcard command.
 target_link_libraries(${COMPONENT_LIB} INTERFACE
     "-Wl,--wrap=ctap_process_cbor_stream_with_src"
     "-Wl,--wrap=ctap_process_cbor_stream_source_with_src"
     "-Wl,--wrap=wait_for_user_presence"
     "-Wl,--wrap=process_apdu_from"
+    "-Wl,--wrap=device_applet_session_acquire"
 )

@@ -112,13 +112,18 @@ uint8_t CCID_Response_SendData(USBD_HandleTypeDef *pdev, const uint8_t *buf, uin
 void ccid_glue_poll(void)
 {
     event_t event;
-    while (xQueueReceive(s_events, &event, 0) == pdTRUE) {
+    while (s_events && xQueueReceive(s_events, &event, 0) == pdTRUE) {
         if (event.type == EVENT_RX) {
             CCID_OutEvent(event.data, event.len);
         } else {
             CCID_InFinished(event.time_extension);
         }
     }
+}
+
+bool ccid_glue_sending(void)
+{
+    return s_in_state != CCID_STATE_IDLE;
 }
 
 void ccid_glue_log_diagnostics(void)

@@ -200,9 +200,18 @@ static uint16_t ccid_open(uint8_t rhport, tusb_desc_interface_t const *itf, uint
     return len;
 }
 
+#define CCID_REQUEST_ABORT  0x01
+
+/* ABORT is acknowledged; the PC_to_RDR_Abort that follows on the bulk pipe is the card's business. */
 static bool ccid_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_request_t const *request)
 {
-    return false;
+    if (request->bmRequestType_bit.type != TUSB_REQ_TYPE_CLASS || request->bRequest != CCID_REQUEST_ABORT) {
+        return false;
+    }
+    if (stage == CONTROL_STAGE_SETUP) {
+        return tud_control_status(rhport, request);
+    }
+    return true;
 }
 
 static bool ccid_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes)
