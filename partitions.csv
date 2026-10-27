@@ -6,4 +6,5 @@ ota_0,    app,  ota_0,    0x20000,  3M
 ota_1,    app,  ota_1,    ,         3M
 fido,     data, littlefs, ,         0x40000
 coredump, data, coredump, ,         0x10000
-storage,  data, littlefs, ,         0x990000
+storage,  data, littlefs, ,         0x890000
+openpgp,  data, littlefs, ,         0x40000
