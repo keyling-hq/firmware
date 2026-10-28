@@ -13,9 +13,10 @@ file(GLOB CK_SRCS
     ${CK_CRYPTO}/src/*.c
 )
 list(FILTER CK_SRCS EXCLUDE REGEX
-    "/src/applets\\.c$|/ctap/ctap\\.c$|/openpgp/openpgp\\.c$|ml-dsa-65\\.c$|ml-kem-768\\.c$")
+    "/src/applets\\.c$|/src/fs\\.c$|/ctap/ctap\\.c$|/openpgp/openpgp\\.c$|ml-dsa-65\\.c$|ml-kem-768\\.c$")
 list(APPEND CK_SRCS
     ${CK_GEN}/ctap.c
+    ${CK_GEN}/fs.c
     ${CK_GEN}/openpgp/openpgp.c
     ${CK_GEN}/ccid.c
     ${CK}/interfaces/USB/class/ctaphid/ctaphid.c
@@ -69,6 +70,14 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)
     copy_replacing(${CK}/applets/ctap/ctap.c ${CK_GEN}/ctap.c
         "static const uint8_t aaguid\\[\\] = {[^}]*};"
         "static const uint8_t aaguid[] = {${aaguid_c}};")
+    # An approved security key reset also erases the FIDO store, done by the port.
+    copy_replacing(${CK_GEN}/ctap.c ${CK_GEN}/ctap.c
+        "return ctap_install\\(1\\);"
+        "extern uint8_t canokey_port_fido_reset(void);\n  return canokey_port_fido_reset();")
+    # Each file goes to the FIDO or the OpenPGP store, chosen by port/canokey_storage.c.
+    copy_replacing(${CK}/src/fs.c ${CK_GEN}/fs.c
+        "static lfs_t lfs;"
+        "extern lfs_t *canokey_fs_lfs;\n#define lfs (*canokey_fs_lfs)")
     copy_replacing(${CK}/scripts/gen_ctap_get_info.py ${CK_GEN}/gen_ctap_get_info.py
         "AAGUID = bytes\\(\\[[^]]*\\]\\)"
         "AAGUID = bytes.fromhex('${aaguid_hex}')")
@@ -91,6 +100,7 @@ idf_component_register(
     SRCS ${CK_SRCS}
          "port/applet_stubs.c"
          "port/canokey_port.c"
+         "port/canokey_storage.c"
          "port/ccid_glue.c"
          "port/ctap_request.c"
          "port/ctaphid_glue.c"
@@ -144,3 +154,8 @@ target_link_libraries(${COMPONENT_LIB} INTERFACE
     "-Wl,--wrap=process_apdu_from"
     "-Wl,--wrap=device_applet_session_acquire"
 )
+# port/canokey_storage.c routes each file to its store.
+foreach(fn read_file write_file append_file truncate_file write_file_attrs set_attrs_commit read_attr write_attr
+        remove_attr get_file_size get_attr_size fs_rename remove_file)
+    target_link_libraries(${COMPONENT_LIB} INTERFACE "-Wl,--wrap=${fn}")
+endforeach()

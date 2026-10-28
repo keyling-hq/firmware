@@ -1,5 +1,6 @@
 #include <string.h>
 #include "canokey_port.h"
+#include "canokey_storage.h"
 #include "ctap_request.h"
 #include "ccid_glue.h"
 #include "ctaphid_glue.h"
@@ -11,12 +12,9 @@
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_system.h"
-#include "esp_partition.h"
 #include "esp_random.h"
 #include "esp_timer.h"
-#include "keystore.h"
 #include "nvs.h"
-#include "aes/esp_aes.h"
 #include <stdio.h>
 #include <apdu.h>
 #include <applets.h>
@@ -28,40 +26,21 @@
 #include <device.h>
 #include <device-config.h>
 #include <fs.h>
-#include <lfs.h>
 #include <platform-config.h>
 #include <rand.h>
 
 static const char *TAG = "canokey";
 
-#define PARTITION_LABEL     "fido"
-#define FS_BLOCK_SIZE       4096
-#define FS_CACHE_SIZE       256
-#define FS_LOOKAHEAD_SIZE   32
 #define TASK_STACK          12288
 #define TASK_PRIO           2
 #define LOOP_IDLE_MS        2
 
 #define NVS_NAMESPACE       "canokey"
 #define NVS_CONFIG_PAGE     "cfgpage"
-#define NVS_STORAGE_SALT    "fssalt"
-
-#define STORAGE_SALT_SIZE   16
-#define XTS_UNIT            16
 
 extern const uint8_t canokey_dev_attestation_key[32];
 extern const uint8_t canokey_dev_attestation_cert[];
 extern const size_t canokey_dev_attestation_cert_len;
-
-static const esp_partition_t *s_part;
-static bool s_fs_mounted;
-static uint8_t s_read_buf[FS_CACHE_SIZE];
-static uint8_t s_prog_buf[FS_CACHE_SIZE];
-static uint8_t s_lookahead_buf[FS_LOOKAHEAD_SIZE];
-static uint8_t s_cipher_buf[FS_CACHE_SIZE];
-static struct lfs_config s_lfs_cfg;
-static esp_aes_xts_context s_xts_enc;
-static esp_aes_xts_context s_xts_dec;
 
 static const char *s_status = "not started";
 static TaskHandle_t s_task;
@@ -74,6 +53,7 @@ static int s_boot_cert_size;
 static canokey_presence_cb_t s_presence_cb;
 static void *s_presence_ctx;
 static volatile bool s_presence_waiting;
+static volatile bool s_fido_wipe_pending;
 
 /* ---- platform hooks required by canokey-core (include/device.h) ---------- */
 
@@ -212,142 +192,6 @@ int platform_config_page_write(const void *page, size_t len)
     memcpy(s_config_page, page, sizeof(s_config_page));
     s_config_loaded = true;
     return 0;
-}
-
-/* ---- littlefs on the "fido" partition ------------------------------------ */
-
-/*
- * Everything on the partition is encrypted with XTS-AES-128 in 16-byte units, tweaked by the
- * unit's offset: the scheme of the chip's flash encryption, keyed from the keystore. A new keystore
- * root or salt (factory reset) makes all earlier contents unreadable.
- */
-static esp_err_t storage_key_load(void)
-{
-    uint8_t salt[STORAGE_SALT_SIZE];
-    nvs_handle_t nvs;
-    ESP_RETURN_ON_ERROR(nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs), TAG, "nvs");
-    size_t len = sizeof(salt);
-    esp_err_t err = ESP_OK;
-    if (nvs_get_blob(nvs, NVS_STORAGE_SALT, salt, &len) != ESP_OK || len != sizeof(salt)) {
-        esp_fill_random(salt, sizeof(salt));
-        err = nvs_set_blob(nvs, NVS_STORAGE_SALT, salt, sizeof(salt));
-        if (err == ESP_OK) {
-            err = nvs_commit(nvs);
-        }
-    }
-    nvs_close(nvs);
-    ESP_RETURN_ON_ERROR(err, TAG, "salt");
-
-    uint8_t key[KEYSTORE_KEY_SIZE];
-    err = keystore_derive("fido", salt, sizeof(salt), key);
-    if (err == ESP_OK) {
-        esp_aes_xts_free(&s_xts_enc);
-        esp_aes_xts_free(&s_xts_dec);
-        esp_aes_xts_init(&s_xts_enc);
-        esp_aes_xts_init(&s_xts_dec);
-        if (esp_aes_xts_setkey_enc(&s_xts_enc, key, 8 * sizeof(key)) != 0 ||
-            esp_aes_xts_setkey_dec(&s_xts_dec, key, 8 * sizeof(key)) != 0) {
-            err = ESP_FAIL;
-        }
-    }
-    memset(key, 0, sizeof(key));
-    return err;
-}
-
-static int crypt_units(esp_aes_xts_context *ctx, int mode, uint32_t addr, const uint8_t *in, uint8_t *out,
-                       size_t size)
-{
-    for (size_t i = 0; i < size; i += XTS_UNIT) {
-        uint8_t tweak[16] = { 0 };
-        uint32_t unit_addr = addr + i;
-        memcpy(tweak, &unit_addr, sizeof(unit_addr));
-        if (esp_aes_crypt_xts(ctx, mode, XTS_UNIT, tweak, in + i, out + i) != 0) {
-            return LFS_ERR_IO;
-        }
-    }
-    return LFS_ERR_OK;
-}
-
-static int lfs_read(const struct lfs_config *c, lfs_block_t block, lfs_off_t off, void *buf, lfs_size_t size)
-{
-    uint32_t addr = block * c->block_size + off;
-    if (esp_partition_read(s_part, addr, buf, size) != ESP_OK) {
-        return LFS_ERR_IO;
-    }
-    return crypt_units(&s_xts_dec, ESP_AES_DECRYPT, addr, buf, buf, size);
-}
-
-static int lfs_prog(const struct lfs_config *c, lfs_block_t block, lfs_off_t off, const void *buf, lfs_size_t size)
-{
-    uint32_t addr = block * c->block_size + off;
-    const uint8_t *in = buf;
-    while (size) {
-        size_t chunk = size < sizeof(s_cipher_buf) ? size : sizeof(s_cipher_buf);
-        if (crypt_units(&s_xts_enc, ESP_AES_ENCRYPT, addr, in, s_cipher_buf, chunk) != LFS_ERR_OK ||
-            esp_partition_write(s_part, addr, s_cipher_buf, chunk) != ESP_OK) {
-            return LFS_ERR_IO;
-        }
-        addr += chunk;
-        in += chunk;
-        size -= chunk;
-    }
-    return LFS_ERR_OK;
-}
-
-static int lfs_erase(const struct lfs_config *c, lfs_block_t block)
-{
-    return esp_partition_erase_range(s_part, block * c->block_size, c->block_size) == ESP_OK ? LFS_ERR_OK
-                                                                                               : LFS_ERR_IO;
-}
-
-static int lfs_sync(const struct lfs_config *c)
-{
-    return LFS_ERR_OK;
-}
-
-/* littlefs's format rewrites only its superblocks: the rest is erased so no old block survives. */
-static int format_storage(void)
-{
-    if (esp_partition_erase_range(s_part, 0, s_part->size) != ESP_OK) {
-        return LFS_ERR_IO;
-    }
-    return fs_format(&s_lfs_cfg);
-}
-
-static esp_err_t fs_start(void)
-{
-    if (s_fs_mounted) {
-        return ESP_OK;
-    }
-    s_part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, PARTITION_LABEL);
-    ESP_RETURN_ON_FALSE(s_part, ESP_ERR_NOT_FOUND, TAG, "no '%s' partition", PARTITION_LABEL);
-    /* Without the key a failed mount must not lead to a format. */
-    ESP_RETURN_ON_ERROR(storage_key_load(), TAG, "storage key");
-
-    s_lfs_cfg = (struct lfs_config){
-        .read = lfs_read,
-        .prog = lfs_prog,
-        .erase = lfs_erase,
-        .sync = lfs_sync,
-        .read_size = 16,
-        .prog_size = 16,
-        .block_size = FS_BLOCK_SIZE,
-        .block_count = s_part->size / FS_BLOCK_SIZE,
-        .block_cycles = 500,
-        .cache_size = FS_CACHE_SIZE,
-        .lookahead_size = FS_LOOKAHEAD_SIZE,
-        .read_buffer = s_read_buf,
-        .prog_buffer = s_prog_buf,
-        .lookahead_buffer = s_lookahead_buf,
-    };
-    if (fs_mount(&s_lfs_cfg) < 0) {
-        /* Also the path after a factory reset: the new keystore salt changes the storage key. */
-        ESP_LOGW(TAG, "formatting '%s'", PARTITION_LABEL);
-        ESP_RETURN_ON_FALSE(format_storage() == 0, ESP_FAIL, TAG, "format");
-        ESP_RETURN_ON_FALSE(fs_mount(&s_lfs_cfg) == 0, ESP_FAIL, TAG, "mount");
-    }
-    s_fs_mounted = true;
-    return ESP_OK;
 }
 
 /* ---- applets ------------------------------------------------------------- */
@@ -545,13 +389,34 @@ int __wrap_device_applet_session_acquire(device_applet_session_owner_t owner)
     return rc;
 }
 
+/* ---- security key reset ------------------------------------------------------ */
+
+/* Called by the generated ctap.c for an approved authenticatorReset, in place of ctap_install(1). */
+uint8_t canokey_port_fido_reset(void)
+{
+    uint8_t rc = ctap_install(1);
+    s_fido_wipe_pending = rc == 0;
+    return rc;
+}
+
+/* Runs once the reset's response is out: erasing reuses the buffers it is sent from. */
+static void wipe_fido(void)
+{
+    if (canokey_storage_wipe_fido() != ESP_OK || ctap_install(1) != 0 || install_dev_attestation() != ESP_OK) {
+        s_status = "reset failed";
+        ESP_LOGE(TAG, "security key reset: storage wipe failed");
+        return;
+    }
+    ESP_LOGI(TAG, "security key reset: storage erased");
+}
+
 /* ---- task ------------------------------------------------------------------ */
 
 /* Runs on the canokey task: its install paths need several KB of stack. */
 static esp_err_t startup(void)
 {
     s_status = "fs fail";
-    ESP_RETURN_ON_ERROR(fs_start(), TAG, "fs");
+    ESP_RETURN_ON_ERROR(canokey_storage_start(), TAG, "storage");
     device_init();
     /* Points the APDU buffer shared by the applets at the CCID buffer. */
     init_apdu_buffer();
@@ -566,7 +431,7 @@ static esp_err_t startup(void)
     ESP_RETURN_ON_ERROR(ccid_glue_start(), TAG, "ccid");
 
     s_status = "ok";
-    ESP_LOGI(TAG, "started: storage %u KB", (unsigned)(s_part->size / 1024));
+    ESP_LOGI(TAG, "started");
     return ESP_OK;
 }
 
@@ -607,6 +472,10 @@ static void canokey_task(void *arg)
         s_loop_tick = device_get_tick();
         ccid_glue_poll();
         device_loop();
+        if (s_fido_wipe_pending && !CTAPHID_TxBusy()) {
+            s_fido_wipe_pending = false;
+            wipe_fido();
+        }
         device_update_led();
         vTaskDelay(pdMS_TO_TICKS(LOOP_IDLE_MS));
     }
