@@ -6,7 +6,7 @@ Runs on the LilyGo T-Dongle-S3 (ESP32-S3). It is also a FIDO2/U2F security key, 
 [canokey-core](https://github.com/canokeys/canokey-core).
 
 - Clone with `git clone --recurse-submodules` (or run `git submodule update --init` afterwards).
-- Build: PlatformIO with ESP-IDF (`pio run -e hid`; `-e dev` keeps the USB console and JTAG).
+- Build: PlatformIO with ESP-IDF (`pio run -e hid`; `-e jtag` trades USB for a console and JTAG, for debugging only).
 - Protocol: `proto/` is the [keyling-hq/protocol](https://github.com/keyling-hq/protocol)
   submodule; after updating it, regenerate with `tools/gen_proto.py`. Reference client in
   `tools/client.py`.

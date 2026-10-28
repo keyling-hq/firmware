@@ -30,12 +30,8 @@ jobs:
           git diff --exit-code -- components/protocol tools/bridge_pb2.py tools/bridge_pb2.pyi
 
   build:
-    name: Build ${{ matrix.env }}
+    name: Build
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        env: [dev, hid]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -43,5 +39,5 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/setup-build
       - name: Build
-        run: pio run -e ${{ matrix.env }}
+        run: pio run -e hid
 
