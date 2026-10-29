@@ -26,7 +26,8 @@ static const char *TAG = "protocol";
 #define FLAG_SESSION        BIT1
 #define FLAG_ABORT          BIT2
 #define FLAG_STATUS         BIT3
-#define FLAG_ALL            (FLAG_RX | FLAG_SESSION | FLAG_ABORT | FLAG_STATUS)
+#define FLAG_PROFILES       BIT4
+#define FLAG_ALL            (FLAG_RX | FLAG_SESSION | FLAG_ABORT | FLAG_STATUS | FLAG_PROFILES)
 
 _Static_assert(2 + MAX_FRAME <= RX_WINDOW, "a full frame must fit in the receive window");
 
@@ -107,8 +108,16 @@ static void send_config(void)
     send_event(&event);
 }
 
+static void send_profiles(void)
+{
+    bridge_Event event = { .which_msg = bridge_Event_profiles_tag };
+    s_handlers.get_profiles(&event.profiles, s_ctx);
+    send_event(&event);
+}
+
 static const char *const CAPABILITIES[] = {
     "text", "strokes", "key_combo", "consumer", "keyboard_report", "config", "ota", "device_info", "logs",
+    "profiles",
 };
 
 static void send_hello(void)
@@ -281,6 +290,18 @@ static bridge_Result handle_request(const bridge_Request *req)
         send_event(&event);
         return bridge_Result_RESULT_OK;
     }
+    case bridge_Request_get_profiles_tag:
+        send_profiles();
+        return bridge_Result_RESULT_OK;
+    case bridge_Request_select_profile_tag: {
+        bridge_Result result = s_handlers.select_profile(&req->select_profile, s_ctx);
+        send_profiles();
+        return result;
+    }
+    case bridge_Request_profile_secret_tag:
+        return s_handlers.profile_secret(&req->profile_secret, s_ctx);
+    case bridge_Request_reset_profile_tag:
+        return s_handlers.reset_profile(&req->reset_profile, s_ctx);
     case bridge_Request_ping_tag:
         return bridge_Result_RESULT_OK;
     default:
@@ -405,6 +426,9 @@ static void protocol_task(void *arg)
         if ((bits & FLAG_STATUS) && s_session) {
             send_status();
         }
+        if ((bits & FLAG_PROFILES) && s_session) {
+            send_profiles();
+        }
         process_rx();
     }
 }
@@ -454,4 +478,11 @@ void protocol_abort(void)
 void protocol_status_changed(void)
 {
     xEventGroupSetBits(s_flags, FLAG_STATUS);
+}
+
+void protocol_profiles_changed(void)
+{
+    if (s_flags) {
+        xEventGroupSetBits(s_flags, FLAG_PROFILES);
+    }
 }

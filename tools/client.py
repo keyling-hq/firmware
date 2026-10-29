@@ -189,6 +189,10 @@ class Bridge:
             print(f"device info: {event.device_info}", end="")
         elif kind == "logs":
             self.logs = event.logs
+        elif kind == "profiles":
+            p = event.profiles
+            print(f"profiles: active={pb.Profile.Name(p.active)} default={pb.Profile.Name(p.default_profile)} "
+                  f"protected={pb.ProtectedState.Name(p.protected_state)} id={p.protected_id.hex() or '-'}")
 
     async def _wait_credits(self):
         self.credits_changed.clear()
@@ -348,6 +352,22 @@ async def execute(bridge, args):
                     break
                 await asyncio.sleep(1)
 
+    elif args.command == "profile":
+        profile = {"default": pb.PROFILE_DEFAULT, "protected": pb.PROFILE_PROTECTED}.get(args.profile or "default")
+        if args.action == "show":
+            await bridge.request(pb.Request(get_profiles=pb.GetProfiles()))
+        elif args.action in ("use", "make-default"):
+            req = pb.SelectProfile(profile=profile, make_default=args.action == "make-default")
+            await bridge.request(pb.Request(select_profile=req))
+        elif args.action == "secret":
+            secret = bytes.fromhex(args.profile or "")
+            if await bridge.request(pb.Request(profile_secret=pb.ProfileSecret(secret=secret))) == pb.RESULT_OK:
+                print("protected profile open")
+        elif args.action == "reset":
+            print("confirm on the dongle...")
+            if await bridge.request(pb.Request(reset_profile=pb.ResetProfile(profile=profile))) == pb.RESULT_OK:
+                print("profile erased")
+
     elif args.command == "config":
         if not args.settings:
             await bridge.request(pb.Request(get_config=pb.GetConfig()))
@@ -411,6 +431,10 @@ def add_commands(sub):
     p = sub.add_parser("ota", help="update the firmware, e.g. .pio/build/hid/firmware.bin")
     p.add_argument("image")
     sub.add_parser("device", help="show device information")
+    p = sub.add_parser("profile", help="security key profiles: show, use/make-default/reset default|protected, "
+                                       "secret <64 hex digits>")
+    p.add_argument("action", choices=["show", "use", "make-default", "reset", "secret"])
+    p.add_argument("profile", nargs="?", help="default or protected; the secret's hex digits for secret")
     p = sub.add_parser("logs", help="print the dongle's recent log output")
     p.add_argument("-f", "--follow", action="store_true", help="keep printing new output")
     sub.add_parser("ping")

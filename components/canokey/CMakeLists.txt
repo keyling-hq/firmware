@@ -63,6 +63,10 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)
         "0xf1, 0xd0, ( *// manufacturer)"
         "0xff, 0x00,\\1")
     configure_file(${CK}/applets/openpgp/key.h ${CK_GEN}/openpgp/key.h COPYONLY)
+    # Switching profiles changes the card under the applet: its cached state is dropped with the rest.
+    copy_replacing(${CK_GEN}/openpgp/openpgp.c ${CK_GEN}/openpgp/openpgp.c
+        "void openpgp_poweroff\\(void\\) {"
+        "void openpgp_poweroff(void) {\n  terminated_cache_valid = false;")
     # Smartcard ATR: historical bytes "Canokey" become "Keyling", with the checksum (TCK) to match.
     copy_replacing(${CK}/interfaces/USB/class/ccid/ccid.c ${CK_GEN}/ccid.c
         "0x43, 0x61, 0x6E, 0x6F, 0x6B, 0x65, 0x79, 0x99"
@@ -152,6 +156,8 @@ target_link_libraries(${COMPONENT_LIB} INTERFACE
     "-Wl,--wrap=ctap_process_cbor_stream_source_with_src"
     "-Wl,--wrap=wait_for_user_presence"
     "-Wl,--wrap=process_apdu_from"
+    "-Wl,--wrap=ctap_process_apdu_with_src"
+    "-Wl,--wrap=ctap_process_apdu_source_with_src"
     "-Wl,--wrap=device_applet_session_acquire"
 )
 # port/canokey_storage.c routes each file to its store.

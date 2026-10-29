@@ -22,6 +22,11 @@ typedef struct {
     void (*get_device_info)(bridge_DeviceInfo *out, void *ctx);
     /** Firmware update started, progressed or stopped. After a successful one the dongle restarts. */
     void (*ota_state)(bool active, uint8_t percent, void *ctx);
+    void (*get_profiles)(bridge_Profiles *out, void *ctx);
+    bridge_Result (*select_profile)(const bridge_SelectProfile *in, void *ctx);
+    bridge_Result (*profile_secret)(const bridge_ProfileSecret *in, void *ctx);
+    /** May block until the user answers the confirmation on the dongle. */
+    bridge_Result (*reset_profile)(const bridge_ResetProfile *in, void *ctx);
 } protocol_handlers_t;
 
 esp_err_t protocol_start(const protocol_handlers_t *handlers, void *ctx);
@@ -39,6 +44,9 @@ void protocol_abort(void);
 
 /** Something reported in Status changed; the phone is sent a fresh Status. */
 void protocol_status_changed(void);
+
+/** Something reported in Profiles changed; the phone is sent a fresh Profiles. */
+void protocol_profiles_changed(void);
 
 #ifdef __cplusplus
 }

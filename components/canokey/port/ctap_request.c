@@ -6,6 +6,7 @@
  */
 #include <string.h>
 #include "ctap_request.h"
+#include "canokey_gate.h"
 #include <cbor.h>
 #include <ctap.h>
 #include <ctap-internal.h>
@@ -15,6 +16,8 @@
 /* Canonical CTAP CBOR sorts keys, so the relying party is near the start of the request. */
 #define PEEK_BYTES          320
 #define WINDOWS_PROBE_RP    "SelectDevice"
+/* No CTAP command: canokey answers CTAP2_ERR_UNHANDLED_REQUEST. */
+#define REFUSED_COMMAND     0x3F
 
 /* OpenPGP card commands that use a private key. */
 #define PGP_INS_PSO         0x2A
@@ -110,11 +113,31 @@ int __real_ctap_process_cbor_stream_with_src(uint8_t *req, size_t req_len, uint8
 int __real_ctap_process_cbor_stream_source_with_src(const ctap_req_src_t *req_src, uint8_t *scratch,
                                                     size_t scratch_len, CTAPHID_TxSource *source, ctap_src_t src);
 
+/* While the profile is locked, only what a security key reset needs is served. */
+static bool refused(const uint8_t *req, size_t len)
+{
+    if (!canokey_port_locked() || len < 1 || req[0] == CTAP_GET_INFO || req[0] == CTAP_RESET ||
+        req[0] == CTAP_SELECTION || req[0] == REFUSED_COMMAND) {
+        return false;
+    }
+    canokey_port_report_locked();
+    return true;
+}
+
+static int refuse(uint8_t *scratch, size_t scratch_len, CTAPHID_TxSource *source, ctap_src_t src)
+{
+    uint8_t cmd = REFUSED_COMMAND;
+    return __real_ctap_process_cbor_stream_with_src(&cmd, 1, scratch, scratch_len, source, src);
+}
+
 int __wrap_ctap_process_cbor_stream_with_src(uint8_t *req, size_t req_len, uint8_t *scratch, size_t scratch_len,
                                              CTAPHID_TxSource *source, ctap_src_t src)
 {
     if (req) {
         note_request(req, req_len);
+        if (refused(req, req_len)) {
+            return refuse(scratch, scratch_len, source, src);
+        }
     }
     return __real_ctap_process_cbor_stream_with_src(req, req_len, scratch, scratch_len, source, src);
 }
@@ -126,16 +149,56 @@ int __wrap_ctap_process_cbor_stream_source_with_src(const ctap_req_src_t *req_sr
         size_t len = req_src->len < sizeof(s_peek) ? req_src->len : sizeof(s_peek);
         if (req_src->read(req_src->ctx, req_src->base_offset, s_peek, len) >= 0) {
             note_request(s_peek, len);
+            if (refused(s_peek, len)) {
+                return refuse(scratch, scratch_len, source, src);
+            }
         }
     }
     return __real_ctap_process_cbor_stream_source_with_src(req_src, scratch, scratch_len, source, src);
 }
 
+int __real_ctap_process_apdu_with_src(const CAPDU *capdu, RAPDU *rapdu, ctap_src_t src);
+int __real_ctap_process_apdu_source_with_src(const CAPDU *capdu, const ctap_req_src_t *req_src, RAPDU *rapdu,
+                                             ctap_src_t src);
+
+/* U2F: a locked profile answers as if waiting for a touch, so clients keep retrying until it opens. */
+static bool u2f_refused(RAPDU *rapdu)
+{
+    if (!canokey_port_locked()) {
+        return false;
+    }
+    canokey_port_report_locked();
+    rapdu->len = 0;
+    rapdu->sw = SW_CONDITIONS_NOT_SATISFIED;
+    return true;
+}
+
+int __wrap_ctap_process_apdu_with_src(const CAPDU *capdu, RAPDU *rapdu, ctap_src_t src)
+{
+    return u2f_refused(rapdu) ? 0 : __real_ctap_process_apdu_with_src(capdu, rapdu, src);
+}
+
+int __wrap_ctap_process_apdu_source_with_src(const CAPDU *capdu, const ctap_req_src_t *req_src, RAPDU *rapdu,
+                                             ctap_src_t src)
+{
+    return u2f_refused(rapdu) ? 0 : __real_ctap_process_apdu_source_with_src(capdu, req_src, rapdu, src);
+}
+
 void __real_process_apdu_from(CAPDU *capdu, RAPDU *rapdu, apdu_transport_t transport);
 
-/* Only OpenPGP is reachable over CCID; FIDO over CCID keeps the generic prompt. */
+/*
+ * Only OpenPGP is reachable over CCID; FIDO over CCID keeps the generic prompt. A locked profile's
+ * card answers nothing: without CCID's interrupt endpoint hosts never see the slot empty, and a
+ * card that fails to power on stays marked mute until the dongle is replugged.
+ */
 void __wrap_process_apdu_from(CAPDU *capdu, RAPDU *rapdu, apdu_transport_t transport)
 {
+    if (canokey_port_locked()) {
+        canokey_port_report_locked();
+        rapdu->len = 0;
+        rapdu->sw = SW_FILE_NOT_FOUND;
+        return;
+    }
     s_rp_id[0] = '\0';
     s_kind = CANOKEY_REQUEST_OTHER;
     uint16_t p1p2 = (uint16_t)(capdu->p1 << 8 | capdu->p2);

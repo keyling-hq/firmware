@@ -17,6 +17,8 @@
 #include "esp_heap_caps.h"
 #include "esp_system.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "fw_info.h"
 #include "keymap.h"
 #include "keystore.h"
@@ -153,6 +155,9 @@ static void log_diagnostics(void)
     ESP_LOGI(TAG, "---------------------");
 }
 
+/* Given by the confirmation of a profile reset the phone asked for. */
+static SemaphoreHandle_t s_profile_reset_confirm;
+
 static void ui_action_cb(ui_action_t action, int arg)
 {
     switch (action) {
@@ -188,7 +193,22 @@ static void ui_action_cb(ui_action_t action, int arg)
         app_factory_reset_request();
         break;
     case UI_ACTION_FIDO_CONFIRM:
+        if (s_profile_reset_confirm) {
+            xSemaphoreGive(s_profile_reset_confirm);
+        }
         canokey_confirm_presence();
+        break;
+    case UI_ACTION_FIDO_RESET_CONFIRM:
+        canokey_confirm_reset(arg);
+        break;
+    case UI_ACTION_SELECT_PROFILE:
+        canokey_select_profile(arg, false, false);
+        break;
+    case UI_ACTION_DEFAULT_PROFILE:
+        canokey_select_profile(arg, true, false);
+        break;
+    case UI_ACTION_RESET_PROFILE:
+        canokey_reset_profile(arg, false);
         break;
     case UI_ACTION_LOG_DIAGNOSTICS:
         log_diagnostics();
@@ -399,6 +419,72 @@ static void proto_ota_state(bool active, uint8_t percent, void *ctx)
     ui_show_update(active, percent);
 }
 
+static const bridge_ProtectedState PROTECTED_STATES[] = {
+    [CANOKEY_PROFILE_OPEN] = bridge_ProtectedState_PROTECTED_OPEN,
+    [CANOKEY_PROFILE_NEW] = bridge_ProtectedState_PROTECTED_NEW,
+    [CANOKEY_PROFILE_WAITING] = bridge_ProtectedState_PROTECTED_WAITING,
+};
+
+static void proto_get_profiles(bridge_Profiles *out, void *ctx)
+{
+    canokey_profiles_t profiles;
+    canokey_profiles_get(&profiles);
+    out->active = (bridge_Profile)profiles.active;
+    out->default_profile = (bridge_Profile)profiles.default_profile;
+    out->protected_state = PROTECTED_STATES[profiles.protected_state];
+    if (profiles.has_protected_id) {
+        memcpy(out->protected_id.bytes, profiles.protected_id, sizeof(profiles.protected_id));
+        out->protected_id.size = sizeof(profiles.protected_id);
+    }
+}
+
+static bool profile_valid(bridge_Profile profile)
+{
+    return profile == bridge_Profile_PROFILE_DEFAULT || profile == bridge_Profile_PROFILE_PROTECTED;
+}
+
+static bridge_Result proto_select_profile(const bridge_SelectProfile *in, void *ctx)
+{
+    if (!profile_valid(in->profile)) {
+        return bridge_Result_RESULT_INVALID;
+    }
+    return canokey_select_profile((canokey_profile_t)in->profile, in->make_default, true) == ESP_OK
+               ? bridge_Result_RESULT_OK
+               : bridge_Result_RESULT_FAILED;
+}
+
+static bridge_Result proto_profile_secret(const bridge_ProfileSecret *in, void *ctx)
+{
+    esp_err_t err = canokey_set_secret(in->secret.bytes, in->secret.size);
+    return err == ESP_OK                ? bridge_Result_RESULT_OK
+           : err == ESP_ERR_INVALID_SIZE ? bridge_Result_RESULT_INVALID
+                                         : bridge_Result_RESULT_FAILED;
+}
+
+#define PROFILE_RESET_CONFIRM_MS    15000
+
+static const char *const PROFILE_NAMES[] = {
+    [CANOKEY_PROFILE_DEFAULT] = "Default",
+    [CANOKEY_PROFILE_PROTECTED] = "Protected",
+};
+
+static bridge_Result proto_reset_profile(const bridge_ResetProfile *in, void *ctx)
+{
+    if (!profile_valid(in->profile)) {
+        return bridge_Result_RESULT_INVALID;
+    }
+    xSemaphoreTake(s_profile_reset_confirm, 0);
+    ui_show_fido_request(UI_FIDO_PROFILE_RESET, PROFILE_NAMES[in->profile]);
+    bool confirmed = xSemaphoreTake(s_profile_reset_confirm, pdMS_TO_TICKS(PROFILE_RESET_CONFIRM_MS)) == pdTRUE;
+    ui_show_fido_done(confirmed);
+    ESP_LOGI(TAG, "profile %d reset %s", in->profile, confirmed ? "confirmed" : "not confirmed");
+    if (!confirmed) {
+        return bridge_Result_RESULT_ABORTED;
+    }
+    return canokey_reset_profile((canokey_profile_t)in->profile, true) == ESP_OK ? bridge_Result_RESULT_OK
+                                                                                : bridge_Result_RESULT_FAILED;
+}
+
 /* ---- BLE ----------------------------------------------------------------- */
 
 static ui_ble_state_t ui_ble_state_for(const ble_link_status_t *status)
@@ -473,6 +559,26 @@ static void ble_bridge_abort_cb(void *ctx)
     protocol_abort();
 }
 
+static void canokey_event_cb(canokey_event_t event, void *ctx)
+{
+    switch (event) {
+    case CANOKEY_EVENT_PROFILES: {
+        canokey_profiles_t profiles;
+        canokey_profiles_get(&profiles);
+        _Static_assert((int)CANOKEY_PROFILE_OPEN == (int)UI_PROTECTED_OPEN && (int)CANOKEY_PROFILE_NEW == (int)UI_PROTECTED_NEW &&
+                           (int)CANOKEY_PROFILE_WAITING == (int)UI_PROTECTED_WAITING,
+                       "protected state numbering");
+        ui_set_profiles((ui_profile_t)profiles.active, (ui_profile_t)profiles.default_profile,
+                        (ui_protected_state_t)profiles.protected_state);
+        protocol_profiles_changed();
+        break;
+    }
+    case CANOKEY_EVENT_LOCKED_REQUEST:
+        ui_show_profile_locked();
+        break;
+    }
+}
+
 static void fido_presence_cb(bool waiting, canokey_request_t kind, const char *rp_id, bool approved, void *ctx)
 {
     static const ui_fido_request_t ui_kinds[] = {
@@ -485,6 +591,9 @@ static void fido_presence_cb(bool waiting, canokey_request_t kind, const char *r
         [CANOKEY_REQUEST_PGP_DECRYPT] = UI_FIDO_PGP_DECRYPT,
         [CANOKEY_REQUEST_PGP_AUTH] = UI_FIDO_PGP_AUTH,
     };
+    _Static_assert((int)CANOKEY_PROFILE_DEFAULT == (int)UI_PROFILE_DEFAULT &&
+                       (int)CANOKEY_PROFILE_PROTECTED == (int)UI_PROFILE_PROTECTED,
+                   "profile numbering");
     if (waiting) {
         ESP_LOGI(TAG, "fido: request %d for '%s' waits for presence", kind, rp_id);
         status_led_attention(STATUS_LED_ATTENTION_FIDO);
@@ -513,7 +622,9 @@ esp_err_t app_start(void)
     apply_settings();
     ESP_RETURN_ON_ERROR(usb_hid_start(usb_mount_cb, NULL), TAG, "usb");
     /* The security key is optional: a failure there must not take the keyboard down with it. */
-    esp_err_t fido_err = canokey_start(fido_presence_cb, NULL);
+    s_profile_reset_confirm = xSemaphoreCreateBinary();
+    ESP_RETURN_ON_FALSE(s_profile_reset_confirm, ESP_ERR_NO_MEM, TAG, "semaphore");
+    esp_err_t fido_err = canokey_start(fido_presence_cb, canokey_event_cb, NULL);
     if (fido_err != ESP_OK) {
         ESP_LOGE(TAG, "security key unavailable: %s", esp_err_to_name(fido_err));
     }
@@ -526,6 +637,10 @@ esp_err_t app_start(void)
         .get_status = proto_get_status,
         .get_device_info = proto_get_device_info,
         .ota_state = proto_ota_state,
+        .get_profiles = proto_get_profiles,
+        .select_profile = proto_select_profile,
+        .profile_secret = proto_profile_secret,
+        .reset_profile = proto_reset_profile,
     };
     ESP_RETURN_ON_ERROR(protocol_start(&protocol_handlers, NULL), TAG, "protocol");
 

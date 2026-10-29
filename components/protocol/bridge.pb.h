@@ -17,6 +17,18 @@ typedef enum _bridge_Result {
     bridge_Result_RESULT_ABORTED = 3
 } bridge_Result;
 
+typedef enum _bridge_Profile {
+    bridge_Profile_PROFILE_DEFAULT = 0,
+    bridge_Profile_PROFILE_PROTECTED = 1
+} bridge_Profile;
+
+typedef enum _bridge_ProtectedState {
+    bridge_ProtectedState_PROTECTED_UNKNOWN = 0, /* never read a missing value as PROTECTED_NEW */
+    bridge_ProtectedState_PROTECTED_NEW = 1, /* not set up: the next ProfileSecret sets it up */
+    bridge_ProtectedState_PROTECTED_WAITING = 2, /* set up, waiting for its secret */
+    bridge_ProtectedState_PROTECTED_OPEN = 3
+} bridge_ProtectedState;
+
 /* Struct definitions */
 /* Typed with the dongle's current layout. May be split anywhere, even inside a UTF-8 sequence. */
 typedef struct _bridge_Text {
@@ -70,6 +82,39 @@ typedef struct _bridge_GetDeviceInfo {
 typedef struct _bridge_GetLogs {
     uint32_t since;
 } bridge_GetLogs;
+
+/* Security key profiles. Each profile has its own FIDO credentials and OpenPGP card. The protected
+ profile's are encrypted with a key that also depends on a 32-byte secret the phone generates and
+ keeps; the dongle holds the secret in RAM only, so it is needed again after every power-up. While
+ the active profile is protected and its secret hasn't arrived, the OpenPGP card answers no
+ commands and FIDO requests fail (except what a security key reset needs).
+
+ Replied to with a Profiles event. */
+typedef struct _bridge_GetProfiles {
+    char dummy_field;
+} bridge_GetProfiles;
+
+/* Replied to with a Profiles event. make_default also makes it the profile used after power-up. */
+typedef struct _bridge_SelectProfile {
+    bridge_Profile profile;
+    bool make_default;
+} bridge_SelectProfile;
+
+typedef PB_BYTES_ARRAY_T(32) bridge_ProfileSecret_secret_t;
+/* Opens the protected profile; in state PROTECTED_NEW, sets it up with this secret. The Ack is
+ RESULT_OK once open, RESULT_FAILED if the secret doesn't open it (nothing is changed) and
+ RESULT_INVALID if it isn't 32 bytes. There is no way to change the secret: reset the profile and
+ set it up again. */
+typedef struct _bridge_ProfileSecret {
+    bridge_ProfileSecret_secret_t secret;
+} bridge_ProfileSecret;
+
+/* Erases the profile's FIDO credentials and OpenPGP card; a protected profile returns to
+ PROTECTED_NEW. The user confirms on the dongle first, so the Ack can take as long as that:
+ RESULT_ABORTED if declined or not confirmed in time. */
+typedef struct _bridge_ResetProfile {
+    bridge_Profile profile;
+} bridge_ResetProfile;
 
 typedef PB_BYTES_ARRAY_T(32) bridge_OtaBegin_sha256_t;
 /* Firmware update: OtaBegin, then OtaData in order from offset 0, then OtaEnd. While an update
@@ -130,6 +175,10 @@ typedef struct _bridge_Request {
         bridge_SetConfig set_config;
         bridge_GetDeviceInfo get_device_info;
         bridge_GetLogs get_logs;
+        bridge_GetProfiles get_profiles;
+        bridge_SelectProfile select_profile;
+        bridge_ProfileSecret profile_secret;
+        bridge_ResetProfile reset_profile;
         bridge_OtaBegin ota_begin;
         bridge_OtaData ota_data;
         bridge_OtaEnd ota_end;
@@ -143,7 +192,7 @@ typedef struct _bridge_Hello {
     uint32_t max_frame; /* largest CMD frame payload the dongle accepts */
     char firmware_version[32];
     /* Request families this firmware handles, e.g. "text", "strokes", "key_combo", "consumer",
- "keyboard_report", "config", "ota", "device_info", "logs". */
+ "keyboard_report", "config", "ota", "device_info", "logs", "profiles". */
     pb_size_t capabilities_count;
     char capabilities[12][16];
 } bridge_Hello;
@@ -235,6 +284,17 @@ typedef struct _bridge_Logs {
     uint32_t end; /* position after the newest byte logged so far */
 } bridge_Logs;
 
+typedef PB_BYTES_ARRAY_T(16) bridge_Profiles_protected_id_t;
+/* Replies to GetProfiles and SelectProfile, and is also sent whenever any of it changes. */
+typedef struct _bridge_Profiles {
+    bridge_Profile active;
+    bridge_Profile default_profile;
+    bridge_ProtectedState protected_state;
+    /* Random, made when the protected profile is set up and replaced when it is reset; present
+ while it is set up. Not secret: it tells the phone which of its secrets belongs here. */
+    bridge_Profiles_protected_id_t protected_id;
+} bridge_Profiles;
+
 typedef struct _bridge_Event {
     pb_size_t which_msg;
     union {
@@ -245,6 +305,7 @@ typedef struct _bridge_Event {
         bridge_Config config;
         bridge_DeviceInfo device_info;
         bridge_Logs logs;
+        bridge_Profiles profiles;
     };
 } bridge_Event;
 
@@ -258,6 +319,13 @@ extern "C" {
 #define _bridge_Result_MAX bridge_Result_RESULT_ABORTED
 #define _bridge_Result_ARRAYSIZE ((bridge_Result)(bridge_Result_RESULT_ABORTED+1))
 
+#define _bridge_Profile_MIN bridge_Profile_PROFILE_DEFAULT
+#define _bridge_Profile_MAX bridge_Profile_PROFILE_PROTECTED
+#define _bridge_Profile_ARRAYSIZE ((bridge_Profile)(bridge_Profile_PROFILE_PROTECTED+1))
+
+#define _bridge_ProtectedState_MIN bridge_ProtectedState_PROTECTED_UNKNOWN
+#define _bridge_ProtectedState_MAX bridge_ProtectedState_PROTECTED_OPEN
+#define _bridge_ProtectedState_ARRAYSIZE ((bridge_ProtectedState)(bridge_ProtectedState_PROTECTED_OPEN+1))
 
 
 
@@ -268,6 +336,13 @@ extern "C" {
 
 
 
+
+
+
+#define bridge_SelectProfile_profile_ENUMTYPE bridge_Profile
+
+
+#define bridge_ResetProfile_profile_ENUMTYPE bridge_Profile
 
 
 
@@ -285,6 +360,10 @@ extern "C" {
 
 
 
+#define bridge_Profiles_active_ENUMTYPE bridge_Profile
+#define bridge_Profiles_default_profile_ENUMTYPE bridge_Profile
+#define bridge_Profiles_protected_state_ENUMTYPE bridge_ProtectedState
+
 
 /* Initializer values for message structs */
 #define bridge_Request_init_default              {0, 0, {bridge_Text_init_default}}
@@ -298,6 +377,10 @@ extern "C" {
 #define bridge_Ping_init_default                 {0}
 #define bridge_GetDeviceInfo_init_default        {0}
 #define bridge_GetLogs_init_default              {0}
+#define bridge_GetProfiles_init_default          {0}
+#define bridge_SelectProfile_init_default        {_bridge_Profile_MIN, 0}
+#define bridge_ProfileSecret_init_default        {{0, {0}}}
+#define bridge_ResetProfile_init_default         {_bridge_Profile_MIN}
 #define bridge_OtaBegin_init_default             {0, {0, {0}}}
 #define bridge_OtaData_init_default              {0, {0, {0}}}
 #define bridge_OtaEnd_init_default               {0}
@@ -313,6 +396,7 @@ extern "C" {
 #define bridge_SecurityKey_init_default          {""}
 #define bridge_Security_init_default             {false, 0, false, "", false, "", false, 0, false, {0, {0}}, false, 0, false, ""}
 #define bridge_Logs_init_default                 {0, {0, {0}}, 0, 0}
+#define bridge_Profiles_init_default             {_bridge_Profile_MIN, _bridge_Profile_MIN, _bridge_ProtectedState_MIN, {0, {0}}}
 #define bridge_Request_init_zero                 {0, 0, {bridge_Text_init_zero}}
 #define bridge_Text_init_zero                    {""}
 #define bridge_Strokes_init_zero                 {{0, {0}}}
@@ -324,6 +408,10 @@ extern "C" {
 #define bridge_Ping_init_zero                    {0}
 #define bridge_GetDeviceInfo_init_zero           {0}
 #define bridge_GetLogs_init_zero                 {0}
+#define bridge_GetProfiles_init_zero             {0}
+#define bridge_SelectProfile_init_zero           {_bridge_Profile_MIN, 0}
+#define bridge_ProfileSecret_init_zero           {{0, {0}}}
+#define bridge_ResetProfile_init_zero            {_bridge_Profile_MIN}
 #define bridge_OtaBegin_init_zero                {0, {0, {0}}}
 #define bridge_OtaData_init_zero                 {0, {0, {0}}}
 #define bridge_OtaEnd_init_zero                  {0}
@@ -339,6 +427,7 @@ extern "C" {
 #define bridge_SecurityKey_init_zero             {""}
 #define bridge_Security_init_zero                {false, 0, false, "", false, "", false, 0, false, {0, {0}}, false, 0, false, ""}
 #define bridge_Logs_init_zero                    {0, {0, {0}}, 0, 0}
+#define bridge_Profiles_init_zero                {_bridge_Profile_MIN, _bridge_Profile_MIN, _bridge_ProtectedState_MIN, {0, {0}}}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define bridge_Text_text_tag                     1
@@ -349,6 +438,10 @@ extern "C" {
 #define bridge_KeyboardReport_modifiers_tag      1
 #define bridge_KeyboardReport_keys_tag           2
 #define bridge_GetLogs_since_tag                 1
+#define bridge_SelectProfile_profile_tag         1
+#define bridge_SelectProfile_make_default_tag    2
+#define bridge_ProfileSecret_secret_tag          1
+#define bridge_ResetProfile_profile_tag          1
 #define bridge_OtaBegin_size_tag                 1
 #define bridge_OtaBegin_sha256_tag               2
 #define bridge_OtaData_offset_tag                1
@@ -369,6 +462,10 @@ extern "C" {
 #define bridge_Request_set_config_tag            32
 #define bridge_Request_get_device_info_tag       33
 #define bridge_Request_get_logs_tag              34
+#define bridge_Request_get_profiles_tag          35
+#define bridge_Request_select_profile_tag        36
+#define bridge_Request_profile_secret_tag        37
+#define bridge_Request_reset_profile_tag         38
 #define bridge_Request_ota_begin_tag             40
 #define bridge_Request_ota_data_tag              41
 #define bridge_Request_ota_end_tag               42
@@ -410,6 +507,10 @@ extern "C" {
 #define bridge_Logs_data_tag                     2
 #define bridge_Logs_next_tag                     3
 #define bridge_Logs_end_tag                      4
+#define bridge_Profiles_active_tag               1
+#define bridge_Profiles_default_profile_tag      2
+#define bridge_Profiles_protected_state_tag      3
+#define bridge_Profiles_protected_id_tag         4
 #define bridge_Event_hello_tag                   1
 #define bridge_Event_credits_tag                 2
 #define bridge_Event_ack_tag                     3
@@ -417,6 +518,7 @@ extern "C" {
 #define bridge_Event_config_tag                  30
 #define bridge_Event_device_info_tag             31
 #define bridge_Event_logs_tag                    32
+#define bridge_Event_profiles_tag                33
 
 /* Struct field encoding specification for nanopb */
 #define bridge_Request_FIELDLIST(X, a) \
@@ -431,6 +533,10 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (msg,get_config,get_config),  31) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,set_config,set_config),  32) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,get_device_info,get_device_info),  33) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,get_logs,get_logs),  34) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (msg,get_profiles,get_profiles),  35) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (msg,select_profile,select_profile),  36) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (msg,profile_secret,profile_secret),  37) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (msg,reset_profile,reset_profile),  38) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,ota_begin,ota_begin),  40) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,ota_data,ota_data),  41) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,ota_end,ota_end),  42) \
@@ -447,6 +553,10 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (msg,ota_abort,ota_abort),  43)
 #define bridge_Request_msg_set_config_MSGTYPE bridge_SetConfig
 #define bridge_Request_msg_get_device_info_MSGTYPE bridge_GetDeviceInfo
 #define bridge_Request_msg_get_logs_MSGTYPE bridge_GetLogs
+#define bridge_Request_msg_get_profiles_MSGTYPE bridge_GetProfiles
+#define bridge_Request_msg_select_profile_MSGTYPE bridge_SelectProfile
+#define bridge_Request_msg_profile_secret_MSGTYPE bridge_ProfileSecret
+#define bridge_Request_msg_reset_profile_MSGTYPE bridge_ResetProfile
 #define bridge_Request_msg_ota_begin_MSGTYPE bridge_OtaBegin
 #define bridge_Request_msg_ota_data_MSGTYPE bridge_OtaData
 #define bridge_Request_msg_ota_end_MSGTYPE bridge_OtaEnd
@@ -505,6 +615,27 @@ X(a, STATIC,   SINGULAR, UINT32,   since,             1)
 #define bridge_GetLogs_CALLBACK NULL
 #define bridge_GetLogs_DEFAULT NULL
 
+#define bridge_GetProfiles_FIELDLIST(X, a) \
+
+#define bridge_GetProfiles_CALLBACK NULL
+#define bridge_GetProfiles_DEFAULT NULL
+
+#define bridge_SelectProfile_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UENUM,    profile,           1) \
+X(a, STATIC,   SINGULAR, BOOL,     make_default,      2)
+#define bridge_SelectProfile_CALLBACK NULL
+#define bridge_SelectProfile_DEFAULT NULL
+
+#define bridge_ProfileSecret_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, BYTES,    secret,            1)
+#define bridge_ProfileSecret_CALLBACK NULL
+#define bridge_ProfileSecret_DEFAULT NULL
+
+#define bridge_ResetProfile_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UENUM,    profile,           1)
+#define bridge_ResetProfile_CALLBACK NULL
+#define bridge_ResetProfile_DEFAULT NULL
+
 #define bridge_OtaBegin_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   size,              1) \
 X(a, STATIC,   SINGULAR, BYTES,    sha256,            2)
@@ -542,7 +673,8 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (msg,ack,ack),     3) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,status,status),  10) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,config,config),  30) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (msg,device_info,device_info),  31) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (msg,logs,logs),  32)
+X(a, STATIC,   ONEOF,    MESSAGE,  (msg,logs,logs),  32) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (msg,profiles,profiles),  33)
 #define bridge_Event_CALLBACK NULL
 #define bridge_Event_DEFAULT NULL
 #define bridge_Event_msg_hello_MSGTYPE bridge_Hello
@@ -552,6 +684,7 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (msg,logs,logs),  32)
 #define bridge_Event_msg_config_MSGTYPE bridge_Config
 #define bridge_Event_msg_device_info_MSGTYPE bridge_DeviceInfo
 #define bridge_Event_msg_logs_MSGTYPE bridge_Logs
+#define bridge_Event_msg_profiles_MSGTYPE bridge_Profiles
 
 #define bridge_Hello_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   protocol_version,   1) \
@@ -629,6 +762,14 @@ X(a, STATIC,   SINGULAR, UINT32,   end,               4)
 #define bridge_Logs_CALLBACK NULL
 #define bridge_Logs_DEFAULT NULL
 
+#define bridge_Profiles_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UENUM,    active,            1) \
+X(a, STATIC,   SINGULAR, UENUM,    default_profile,   2) \
+X(a, STATIC,   SINGULAR, UENUM,    protected_state,   3) \
+X(a, STATIC,   SINGULAR, BYTES,    protected_id,      4)
+#define bridge_Profiles_CALLBACK NULL
+#define bridge_Profiles_DEFAULT NULL
+
 extern const pb_msgdesc_t bridge_Request_msg;
 extern const pb_msgdesc_t bridge_Text_msg;
 extern const pb_msgdesc_t bridge_Strokes_msg;
@@ -640,6 +781,10 @@ extern const pb_msgdesc_t bridge_SetConfig_msg;
 extern const pb_msgdesc_t bridge_Ping_msg;
 extern const pb_msgdesc_t bridge_GetDeviceInfo_msg;
 extern const pb_msgdesc_t bridge_GetLogs_msg;
+extern const pb_msgdesc_t bridge_GetProfiles_msg;
+extern const pb_msgdesc_t bridge_SelectProfile_msg;
+extern const pb_msgdesc_t bridge_ProfileSecret_msg;
+extern const pb_msgdesc_t bridge_ResetProfile_msg;
 extern const pb_msgdesc_t bridge_OtaBegin_msg;
 extern const pb_msgdesc_t bridge_OtaData_msg;
 extern const pb_msgdesc_t bridge_OtaEnd_msg;
@@ -655,6 +800,7 @@ extern const pb_msgdesc_t bridge_App_msg;
 extern const pb_msgdesc_t bridge_SecurityKey_msg;
 extern const pb_msgdesc_t bridge_Security_msg;
 extern const pb_msgdesc_t bridge_Logs_msg;
+extern const pb_msgdesc_t bridge_Profiles_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define bridge_Request_fields &bridge_Request_msg
@@ -668,6 +814,10 @@ extern const pb_msgdesc_t bridge_Logs_msg;
 #define bridge_Ping_fields &bridge_Ping_msg
 #define bridge_GetDeviceInfo_fields &bridge_GetDeviceInfo_msg
 #define bridge_GetLogs_fields &bridge_GetLogs_msg
+#define bridge_GetProfiles_fields &bridge_GetProfiles_msg
+#define bridge_SelectProfile_fields &bridge_SelectProfile_msg
+#define bridge_ProfileSecret_fields &bridge_ProfileSecret_msg
+#define bridge_ResetProfile_fields &bridge_ResetProfile_msg
 #define bridge_OtaBegin_fields &bridge_OtaBegin_msg
 #define bridge_OtaData_fields &bridge_OtaData_msg
 #define bridge_OtaEnd_fields &bridge_OtaEnd_msg
@@ -683,6 +833,7 @@ extern const pb_msgdesc_t bridge_Logs_msg;
 #define bridge_SecurityKey_fields &bridge_SecurityKey_msg
 #define bridge_Security_fields &bridge_Security_msg
 #define bridge_Logs_fields &bridge_Logs_msg
+#define bridge_Profiles_fields &bridge_Profiles_msg
 
 /* Maximum encoded size of messages (where known) */
 #define BRIDGE_BRIDGE_PB_H_MAX_SIZE              bridge_Request_size
@@ -696,6 +847,7 @@ extern const pb_msgdesc_t bridge_Logs_msg;
 #define bridge_GetConfig_size                    0
 #define bridge_GetDeviceInfo_size                0
 #define bridge_GetLogs_size                      6
+#define bridge_GetProfiles_size                  0
 #define bridge_Hello_size                        249
 #define bridge_KeyCombo_size                     14
 #define bridge_KeyboardReport_size               14
@@ -705,9 +857,13 @@ extern const pb_msgdesc_t bridge_Logs_msg;
 #define bridge_OtaData_size                      1009
 #define bridge_OtaEnd_size                       0
 #define bridge_Ping_size                         0
+#define bridge_ProfileSecret_size                34
+#define bridge_Profiles_size                     24
 #define bridge_Request_size                      1035
+#define bridge_ResetProfile_size                 2
 #define bridge_SecurityKey_size                  33
 #define bridge_Security_size                     79
+#define bridge_SelectProfile_size                4
 #define bridge_SetConfig_size                    168
 #define bridge_Status_size                       21
 #define bridge_Strokes_size                      1023
