@@ -71,6 +71,13 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)
     copy_replacing(${CK}/interfaces/USB/class/ccid/ccid.c ${CK_GEN}/ccid.c
         "0x43, 0x61, 0x6E, 0x6F, 0x6B, 0x65, 0x79, 0x99"
         "0x4B, 0x65, 0x79, 0x6C, 0x69, 0x6E, 0x67, 0x96")
+    # A locked profile's card, or one being swapped, is out of the slot (port/ccid_card_absent.inc).
+    copy_replacing(${CK_GEN}/ccid.c ${CK_GEN}/ccid.c
+        "void __attribute__\\(\\(noinline\\)\\) CCID_Loop\\(void\\) {"
+        "#include \"ccid_card_absent.inc\"\n\nvoid __attribute__((noinline)) CCID_Loop(void) {")
+    copy_replacing(${CK_GEN}/ccid.c ${CK_GEN}/ccid.c
+        "  switch \\(bulkout_data.bMessageType\\) {"
+        "  if (canokey_port_card_absent())\n    errorCode = ccid_card_absent(&response_type);\n  else\n    ccid_card_present();\n  if (errorCode == SLOTERROR_CMD_NOT_SUPPORTED) switch (bulkout_data.bMessageType) {")
     copy_replacing(${CK}/applets/ctap/ctap.c ${CK_GEN}/ctap.c
         "static const uint8_t aaguid\\[\\] = {[^}]*};"
         "static const uint8_t aaguid[] = {${aaguid_c}};")

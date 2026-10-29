@@ -186,19 +186,9 @@ int __wrap_ctap_process_apdu_source_with_src(const CAPDU *capdu, const ctap_req_
 
 void __real_process_apdu_from(CAPDU *capdu, RAPDU *rapdu, apdu_transport_t transport);
 
-/*
- * Only OpenPGP is reachable over CCID; FIDO over CCID keeps the generic prompt. A locked profile's
- * card answers nothing: without CCID's interrupt endpoint hosts never see the slot empty, and a
- * card that fails to power on stays marked mute until the dongle is replugged.
- */
+/* Only OpenPGP is reachable over CCID; FIDO over CCID keeps the generic prompt. */
 void __wrap_process_apdu_from(CAPDU *capdu, RAPDU *rapdu, apdu_transport_t transport)
 {
-    if (canokey_port_locked()) {
-        canokey_port_report_locked();
-        rapdu->len = 0;
-        rapdu->sw = SW_FILE_NOT_FOUND;
-        return;
-    }
     s_rp_id[0] = '\0';
     s_kind = CANOKEY_REQUEST_OTHER;
     uint16_t p1p2 = (uint16_t)(capdu->p1 << 8 | capdu->p2);

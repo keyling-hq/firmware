@@ -16,6 +16,7 @@
 #include "esp_system.h"
 #include "esp_random.h"
 #include "esp_timer.h"
+#include "usb_hid.h"
 #include "nvs.h"
 #include <stdio.h>
 #include <apdu.h>
@@ -429,6 +430,40 @@ bool canokey_port_locked(void)
     return !s_profile_open;
 }
 
+/*
+ * The card is in the slot while the active profile is open. A switch takes the card out and puts
+ * the new one in after a pause, so the host notices the change; the host is told each time over
+ * the interrupt endpoint, and the slot reports what it was last told.
+ */
+#define CARD_SWAP_MS        300
+
+static volatile bool s_card_swap;
+static bool s_card_present;
+static uint32_t s_card_removed_tick;
+
+uint8_t canokey_port_card_absent(void)
+{
+    return !s_card_present;
+}
+
+static void update_card(void)
+{
+    if (!usb_hid_is_mounted()) {
+        s_card_present = false;
+        return;
+    }
+    uint32_t now = device_get_tick();
+    if (s_card_swap && !s_card_present && now - s_card_removed_tick >= CARD_SWAP_MS) {
+        s_card_swap = false;
+    }
+    bool present = s_profile_open && !s_card_swap;
+    if (present == s_card_present || ccid_glue_notify_slot(present) != ESP_OK) {
+        return;
+    }
+    s_card_present = present;
+    s_card_removed_tick = now;
+}
+
 /* Hosts retry and probe in bursts: one report per burst is enough. */
 #define LOCKED_REPORT_MS    3000
 
@@ -535,6 +570,7 @@ static esp_err_t run_cmd(cmd_t *cmd)
             err = default_profile_store(cmd->profile);
         }
         if (err == ESP_OK && cmd->profile != s_profile) {
+            s_card_swap = true;
             err = activate(cmd->profile);
         }
         break;
@@ -709,6 +745,7 @@ static void canokey_task(void *arg)
     for (;;) {
         s_loop_tick = device_get_tick();
         poll_cmds();
+        update_card();
         ccid_glue_poll();
         device_loop();
         if (s_fido_wipe_pending && !CTAPHID_TxBusy()) {
