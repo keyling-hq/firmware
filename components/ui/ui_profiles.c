@@ -2,8 +2,16 @@
 #include "ui_priv.h"
 
 static void show_profiles(void);
+static void show_profile(void);
 
-static ui_profile_t s_reset_profile;
+/* The profile whose menu is open, and the screen to rebuild when the profiles change. */
+static ui_profile_t s_profile;
+static ui_screen_fn_t s_screen = show_profiles;
+
+static ui_profile_t other_profile(ui_profile_t profile)
+{
+    return profile == UI_PROFILE_MAIN ? UI_PROFILE_PHONE_LOCKED : UI_PROFILE_MAIN;
+}
 
 static const char *state_text(ui_profile_t profile)
 {
@@ -20,65 +28,103 @@ static const char *state_text(ui_profile_t profile)
     }
 }
 
-static void select_cb(lv_event_t *e)
+static void mark_active(lv_obj_t *item)
 {
-    ui_emit(UI_ACTION_SELECT_PROFILE, (int)(intptr_t)lv_event_get_user_data(e));
+    lv_obj_set_style_bg_color(item, lv_palette_darken(LV_PALETTE_GREEN, 2), 0);
 }
 
-static void default_cb(lv_event_t *e)
-{
-    ui_profile_t other = ui_profile_default() == UI_PROFILE_MAIN ? UI_PROFILE_PHONE_LOCKED : UI_PROFILE_MAIN;
-    ui_emit(UI_ACTION_DEFAULT_PROFILE, other);
-}
+/* ---- one profile's menu -------------------------------------------------- */
 
-static void reset_profile(void)
+static void use_cb(lv_event_t *e)
 {
-    ui_emit(UI_ACTION_RESET_PROFILE, s_reset_profile);
+    ui_emit(UI_ACTION_SELECT_PROFILE, s_profile);
     ui_navigate(show_profiles);
 }
 
-static void show_reset_menu(void)
+static void startup_cb(lv_event_t *e)
 {
+    ui_emit(UI_ACTION_DEFAULT_PROFILE, s_profile);
+}
+
+static void erase(void)
+{
+    ui_emit(UI_ACTION_RESET_PROFILE, s_profile);
+    ui_navigate(show_profile);
+}
+
+static void show_erase(void)
+{
+    s_screen = show_erase;
     char title[32];
-    snprintf(title, sizeof(title), "Erase %s?", ui_profile_name(s_reset_profile));
-    lv_obj_t *list = ui_menu_begin(title, show_profiles);
-    lv_obj_t *cancel = ui_menu_add(list, "Cancel", ui_submenu_cb, (intptr_t)show_profiles);
-    ui_hold_add(list, "Hold to erase", UI_HOLD_RESET_MS, reset_profile);
+    snprintf(title, sizeof(title), "Erase %s?", ui_profile_name(s_profile));
+    lv_obj_t *list = ui_menu_begin(title, show_profile);
+    lv_obj_t *cancel = ui_menu_add(list, "Cancel", ui_submenu_cb, (intptr_t)show_profile);
+    ui_hold_add(list, "Hold to erase", UI_HOLD_RESET_MS, erase);
     ui_menu_end(list, cancel);
 }
 
-static void reset_cb(lv_event_t *e)
+static void show_profile(void)
 {
-    s_reset_profile = (ui_profile_t)(intptr_t)lv_event_get_user_data(e);
-    ui_navigate(show_reset_menu);
+    s_screen = show_profile;
+    char title[40];
+    snprintf(title, sizeof(title), "%s%s", ui_profile_name(s_profile), state_text(s_profile));
+    lv_obj_t *list = ui_menu_begin(title, show_profiles);
+    if (s_profile == ui_profile_active()) {
+        mark_active(ui_menu_add(list, LV_SYMBOL_OK " In use", NULL, 0));
+    } else {
+        ui_menu_add(list, "Use", use_cb, 0);
+    }
+    bool startup = s_profile == ui_profile_default();
+    ui_menu_add(list, startup ? LV_SYMBOL_OK " Start with this" : "Start with this", startup ? NULL : startup_cb, 0);
+    ui_menu_add(list, "Erase", ui_submenu_cb, (intptr_t)show_erase);
+    ui_menu_end(list, NULL);
+}
+
+/* ---- top level ------------------------------------------------------------ */
+
+static void switch_cb(lv_event_t *e)
+{
+    ui_emit(UI_ACTION_SELECT_PROFILE, other_profile(ui_profile_active()));
+}
+
+static void open_cb(lv_event_t *e)
+{
+    s_profile = (ui_profile_t)(intptr_t)lv_event_get_user_data(e);
+    ui_navigate(show_profile);
 }
 
 static void show_profiles(void)
 {
-    lv_obj_t *list = ui_menu_begin("Profiles", NULL);
-    lv_obj_t *focus = NULL;
+    s_screen = show_profiles;
+    lv_obj_t *list = ui_menu_begin("Profiles", ui_app_exit);
     char text[40];
+    snprintf(text, sizeof(text), "Switch to %s", ui_profile_name(other_profile(ui_profile_active())));
+    lv_obj_t *focus = ui_menu_add(list, text, switch_cb, 0);
     for (int i = 0; i < UI_PROFILE_COUNT; i++) {
-        bool active = i == (int)ui_profile_active();
-        snprintf(text, sizeof(text), "%s%s%s", active ? LV_SYMBOL_OK " " : "", ui_profile_name(i), state_text(i));
-        lv_obj_t *item = ui_menu_add(list, text, select_cb, i);
-        if (active) {
-            focus = item;
+        snprintf(text, sizeof(text), "%s%s", ui_profile_name(i), state_text(i));
+        lv_obj_t *item = ui_menu_add(list, text, open_cb, i);
+        if (i == (int)ui_profile_active()) {
+            mark_active(item);
         }
     }
-    snprintf(text, sizeof(text), "Start: %s", ui_profile_name(ui_profile_default()));
-    ui_menu_add(list, text, default_cb, 0);
-    for (int i = 0; i < UI_PROFILE_COUNT; i++) {
-        snprintf(text, sizeof(text), "Erase %s", ui_profile_name(i));
-        ui_menu_add(list, text, reset_cb, i);
-    }
-    ui_hold_add(list, "Hold to exit", UI_HOLD_EXIT_MS, ui_app_exit);
     ui_menu_end(list, focus);
+}
+
+static void start(void)
+{
+    s_screen = show_profiles;
+}
+
+static void refresh(void)
+{
+    s_screen();
 }
 
 const ui_app_t ui_app_profiles = {
     .id = "profiles",
     .name = "Profiles",
     .icon = LV_SYMBOL_LIST,
+    .start = start,
     .show = show_profiles,
+    .refresh = refresh,
 };

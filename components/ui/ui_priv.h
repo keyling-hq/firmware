@@ -20,6 +20,7 @@ typedef struct {
     void (*start)(void);        /* optional: the app became current */
     ui_screen_fn_t show;        /* builds the app's root screen; also used after overlays */
     void (*stop)(void);         /* optional: the app is being left */
+    ui_screen_fn_t refresh;     /* optional: rebuilds the current screen after shown state changed */
 } ui_app_t;
 
 extern const ui_app_t ui_app_jiggler;

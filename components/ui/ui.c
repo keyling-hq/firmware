@@ -874,8 +874,8 @@ void ui_set_profiles(ui_profile_t active, ui_profile_t default_profile, ui_phone
     s_profile_default = default_profile;
     s_phone_locked_state = phone_locked_state;
     update_status();
-    if (s_app == &ui_app_profiles && s_overlay == OVERLAY_NONE) {
-        navigate(show_home);
+    if (s_app && s_app->refresh && s_overlay == OVERLAY_NONE) {
+        navigate(s_app->refresh);
     }
     lvgl_port_unlock();
 }
