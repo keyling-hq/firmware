@@ -39,6 +39,18 @@ PB_BIND(bridge_GetDeviceInfo, bridge_GetDeviceInfo, AUTO)
 PB_BIND(bridge_GetLogs, bridge_GetLogs, AUTO)
 
 
+PB_BIND(bridge_GetProfiles, bridge_GetProfiles, AUTO)
+
+
+PB_BIND(bridge_SelectProfile, bridge_SelectProfile, AUTO)
+
+
+PB_BIND(bridge_ProfileSecret, bridge_ProfileSecret, AUTO)
+
+
+PB_BIND(bridge_ResetProfile, bridge_ResetProfile, AUTO)
+
+
 PB_BIND(bridge_OtaBegin, bridge_OtaBegin, AUTO)
 
 
@@ -82,6 +94,13 @@ PB_BIND(bridge_Security, bridge_Security, AUTO)
 
 
 PB_BIND(bridge_Logs, bridge_Logs, 2)
+
+
+PB_BIND(bridge_Profiles, bridge_Profiles, AUTO)
+
+
+
+
 
 
 

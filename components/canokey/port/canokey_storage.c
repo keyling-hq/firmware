@@ -17,15 +17,20 @@ static const char *TAG = "canokey_fs";
 #define FS_LOOKAHEAD_SIZE   32
 
 #define NVS_NAMESPACE       "canokey"
+#define NVS_PHONE_LOCKED_ID    "pid"
 #define STORAGE_SALT_SIZE   16
 #define XTS_UNIT            16
 
 #define PGP_FILE_PREFIX     "pgp-"
 
+enum { STORE_FIDO, STORE_PGP, STORE_COUNT };
+
 typedef struct {
     const char *label;      /* partition and keystore label */
     const char *salt_name;  /* NVS key of the store's salt */
+    const char *ready_name; /* phone-locked stores: NVS flag, set once formatted under a secret */
     const esp_partition_t *part;
+    bool mounted;
     lfs_t lfs;
     struct lfs_config cfg;
     esp_aes_xts_context enc;
@@ -35,37 +40,92 @@ typedef struct {
     uint8_t lookahead_buf[FS_LOOKAHEAD_SIZE];
 } store_t;
 
-static store_t s_fido = { .label = "fido", .salt_name = "fssalt" };
-static store_t s_pgp = { .label = "openpgp", .salt_name = "pgpsalt" };
+static store_t s_stores[CANOKEY_PROFILE_COUNT][STORE_COUNT] = {
+    [CANOKEY_PROFILE_MAIN] = {
+        [STORE_FIDO] = { .label = "fido", .salt_name = "fssalt" },
+        [STORE_PGP] = { .label = "openpgp", .salt_name = "pgpsalt" },
+    },
+    [CANOKEY_PROFILE_PHONE_LOCKED] = {
+        [STORE_FIDO] = { .label = "fido_p", .salt_name = "fpsalt", .ready_name = "fpready" },
+        [STORE_PGP] = { .label = "openpgp_p", .salt_name = "ppsalt", .ready_name = "ppready" },
+    },
+};
+static canokey_profile_t s_active = CANOKEY_PROFILE_MAIN;
+static uint8_t s_secret[CANOKEY_SECRET_SIZE];
+static bool s_secret_set;
 static uint8_t s_cipher_buf[FS_CACHE_SIZE];
 
-/* The filesystem the generated fs.c operates on; calls without a path always get FIDO's. */
-lfs_t *canokey_fs_lfs = &s_fido.lfs;
+/* The filesystem the generated fs.c operates on; calls without a path get the active FIDO store. */
+lfs_t *canokey_fs_lfs = &s_stores[CANOKEY_PROFILE_MAIN][STORE_FIDO].lfs;
 
-/*
- * Everything on a store's partition is encrypted with XTS-AES-128 in 16-byte units, tweaked by
- * the unit's offset: the scheme of the chip's flash encryption, keyed from the keystore. A new
- * keystore root or salt makes all earlier contents unreadable.
- */
-static esp_err_t store_key_load(store_t *st, bool renew)
+static lfs_t *active_fido_lfs(void)
 {
-    uint8_t salt[STORAGE_SALT_SIZE];
+    return &s_stores[s_active][STORE_FIDO].lfs;
+}
+
+static esp_err_t store_salt(store_t *st, bool renew, uint8_t salt[STORAGE_SALT_SIZE])
+{
     nvs_handle_t nvs;
     ESP_RETURN_ON_ERROR(nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs), TAG, "nvs");
-    size_t len = sizeof(salt);
+    size_t len = STORAGE_SALT_SIZE;
     esp_err_t err = ESP_OK;
-    if (renew || nvs_get_blob(nvs, st->salt_name, salt, &len) != ESP_OK || len != sizeof(salt)) {
-        esp_fill_random(salt, sizeof(salt));
-        err = nvs_set_blob(nvs, st->salt_name, salt, sizeof(salt));
+    if (renew || nvs_get_blob(nvs, st->salt_name, salt, &len) != ESP_OK || len != STORAGE_SALT_SIZE) {
+        esp_fill_random(salt, STORAGE_SALT_SIZE);
+        err = nvs_set_blob(nvs, st->salt_name, salt, STORAGE_SALT_SIZE);
         if (err == ESP_OK) {
             err = nvs_commit(nvs);
         }
     }
     nvs_close(nvs);
     ESP_RETURN_ON_ERROR(err, TAG, "%s: salt", st->label);
+    return ESP_OK;
+}
+
+static bool store_ready(const store_t *st)
+{
+    nvs_handle_t nvs;
+    uint8_t ready = 0;
+    if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs) == ESP_OK) {
+        nvs_get_u8(nvs, st->ready_name, &ready);
+        nvs_close(nvs);
+    }
+    return ready == 1;
+}
+
+static esp_err_t store_set_ready(const store_t *st, bool ready)
+{
+    nvs_handle_t nvs;
+    ESP_RETURN_ON_ERROR(nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs), TAG, "nvs");
+    esp_err_t err = ready ? nvs_set_u8(nvs, st->ready_name, 1) : nvs_erase_key(nvs, st->ready_name);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        err = ESP_OK;
+    }
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+    return err;
+}
+
+/*
+ * Everything on a store's partition is encrypted with XTS-AES-128 in 16-byte units, tweaked by
+ * the unit's offset: the scheme of the chip's flash encryption, keyed from the keystore. A new
+ * keystore root, salt or secret makes all earlier contents unreadable.
+ */
+static esp_err_t store_key_load(store_t *st, bool renew_salt)
+{
+    uint8_t input[STORAGE_SALT_SIZE + CANOKEY_SECRET_SIZE];
+    size_t input_len = STORAGE_SALT_SIZE;
+    ESP_RETURN_ON_ERROR(store_salt(st, renew_salt, input), TAG, "%s: salt", st->label);
+    if (st->ready_name) {
+        ESP_RETURN_ON_FALSE(s_secret_set, ESP_ERR_INVALID_STATE, TAG, "%s: no secret", st->label);
+        memcpy(input + STORAGE_SALT_SIZE, s_secret, CANOKEY_SECRET_SIZE);
+        input_len += CANOKEY_SECRET_SIZE;
+    }
 
     uint8_t key[KEYSTORE_KEY_SIZE];
-    err = keystore_derive(st->label, salt, sizeof(salt), key);
+    esp_err_t err = keystore_derive(st->label, input, input_len, key);
+    memset(input, 0, sizeof(input));
     if (err == ESP_OK) {
         esp_aes_xts_free(&st->enc);
         esp_aes_xts_free(&st->dec);
@@ -134,39 +194,41 @@ static int lfs_sync(const struct lfs_config *c)
     return LFS_ERR_OK;
 }
 
-/* littlefs's format rewrites only its superblocks: the rest is erased so no old block survives. */
-static int store_format(store_t *st)
+static void store_unmount(store_t *st)
 {
-    if (esp_partition_erase_range(st->part, 0, st->part->size) != ESP_OK) {
-        return LFS_ERR_IO;
+    if (st->mounted) {
+        lfs_unmount(&st->lfs);
+        st->mounted = false;
     }
-    return fs_format(&st->cfg);
 }
 
-static esp_err_t store_mount(store_t *st, bool fresh)
+/*
+ * Mounts with the current key. A store that doesn't mount is formatted only if allowed: phone-locked
+ * stores never are, since a wrong secret must not destroy them. littlefs's format rewrites only
+ * its superblocks, so the partition is erased first and no old block survives.
+ */
+static esp_err_t store_mount(store_t *st, bool fresh, bool format_on_fail)
 {
     canokey_fs_lfs = &st->lfs;
     int rc = fresh ? LFS_ERR_CORRUPT : fs_mount(&st->cfg);
-    if (rc < 0) {
-        /* Also the path after a factory reset: the new keystore salt changes the store's key. */
-        ESP_LOGW(TAG, "formatting '%s'", st->label);
-        rc = store_format(st);
+    if (rc < 0 && (fresh || format_on_fail)) {
+        if (!fresh) {
+            ESP_LOGW(TAG, "formatting '%s'", st->label);
+        }
+        rc = esp_partition_erase_range(st->part, 0, st->part->size) == ESP_OK ? fs_format(&st->cfg) : LFS_ERR_IO;
         if (rc == 0) {
             rc = fs_mount(&st->cfg);
         }
     }
-    canokey_fs_lfs = &s_fido.lfs;
-    ESP_RETURN_ON_FALSE(rc == 0, ESP_FAIL, TAG, "%s: mount %d", st->label, rc);
-    return ESP_OK;
+    canokey_fs_lfs = active_fido_lfs();
+    st->mounted = rc == 0;
+    return rc == 0 ? ESP_OK : ESP_FAIL;
 }
 
-static esp_err_t store_start(store_t *st)
+static esp_err_t store_init(store_t *st)
 {
     st->part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, st->label);
     ESP_RETURN_ON_FALSE(st->part, ESP_ERR_NOT_FOUND, TAG, "no '%s' partition", st->label);
-    /* Without the key a failed mount must not lead to a format. */
-    ESP_RETURN_ON_ERROR(store_key_load(st, false), TAG, "%s: key", st->label);
-
     st->cfg = (struct lfs_config){
         .context = st,
         .read = lfs_read,
@@ -184,36 +246,183 @@ static esp_err_t store_start(store_t *st)
         .prog_buffer = st->prog_buf,
         .lookahead_buffer = st->lookahead_buf,
     };
-    ESP_RETURN_ON_ERROR(store_mount(st, false), TAG, "%s: mount", st->label);
-    ESP_LOGI(TAG, "'%s': %u KB", st->label, (unsigned)(st->part->size / 1024));
     return ESP_OK;
 }
 
 esp_err_t canokey_storage_start(void)
 {
-    ESP_RETURN_ON_ERROR(store_start(&s_fido), TAG, "fido");
-    return store_start(&s_pgp);
+    for (int p = 0; p < CANOKEY_PROFILE_COUNT; p++) {
+        for (int i = 0; i < STORE_COUNT; i++) {
+            ESP_RETURN_ON_ERROR(store_init(&s_stores[p][i]), TAG, "init");
+        }
+    }
+    for (int i = 0; i < STORE_COUNT; i++) {
+        store_t *st = &s_stores[CANOKEY_PROFILE_MAIN][i];
+        /* Without the key a failed mount must not lead to a format. */
+        ESP_RETURN_ON_ERROR(store_key_load(st, false), TAG, "%s: key", st->label);
+        /* Also the path after a factory reset: the new keystore salt changes the store's key. */
+        ESP_RETURN_ON_ERROR(store_mount(st, false, true), TAG, "%s: mount", st->label);
+    }
+    return ESP_OK;
 }
 
-esp_err_t canokey_storage_wipe_fido(void)
+static bool profile_open(canokey_profile_t profile)
 {
-    lfs_unmount(&s_fido.lfs);
-    ESP_RETURN_ON_ERROR(store_key_load(&s_fido, true), TAG, "fido: key");
-    return store_mount(&s_fido, true);
+    return s_stores[profile][STORE_FIDO].mounted && s_stores[profile][STORE_PGP].mounted;
+}
+
+esp_err_t canokey_storage_select(canokey_profile_t profile)
+{
+    ESP_RETURN_ON_FALSE(profile < CANOKEY_PROFILE_COUNT && profile_open(profile), ESP_ERR_INVALID_STATE, TAG,
+                        "profile %d not open", profile);
+    s_active = profile;
+    canokey_fs_lfs = active_fido_lfs();
+    return ESP_OK;
+}
+
+canokey_profile_state_t canokey_storage_state(canokey_profile_t profile)
+{
+    if (profile_open(profile)) {
+        return CANOKEY_PROFILE_OPEN;
+    }
+    for (int i = 0; i < STORE_COUNT; i++) {
+        if (store_ready(&s_stores[profile][i])) {
+            return CANOKEY_PROFILE_WAITING;
+        }
+    }
+    return CANOKEY_PROFILE_NEW;
+}
+
+static void forget_secret(void)
+{
+    memset(s_secret, 0, sizeof(s_secret));
+    s_secret_set = false;
+}
+
+static esp_err_t phone_locked_id_set(bool create)
+{
+    nvs_handle_t nvs;
+    ESP_RETURN_ON_ERROR(nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs), TAG, "nvs");
+    esp_err_t err;
+    if (create) {
+        uint8_t id[CANOKEY_PROFILE_ID_SIZE];
+        esp_fill_random(id, sizeof(id));
+        err = nvs_set_blob(nvs, NVS_PHONE_LOCKED_ID, id, sizeof(id));
+    } else {
+        err = nvs_erase_key(nvs, NVS_PHONE_LOCKED_ID);
+        if (err == ESP_ERR_NVS_NOT_FOUND) {
+            err = ESP_OK;
+        }
+    }
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+    return err;
+}
+
+bool canokey_storage_phone_locked_id(uint8_t id[CANOKEY_PROFILE_ID_SIZE])
+{
+    nvs_handle_t nvs;
+    if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs) != ESP_OK) {
+        return false;
+    }
+    size_t len = CANOKEY_PROFILE_ID_SIZE;
+    bool found = nvs_get_blob(nvs, NVS_PHONE_LOCKED_ID, id, &len) == ESP_OK && len == CANOKEY_PROFILE_ID_SIZE;
+    nvs_close(nvs);
+    return found;
+}
+
+esp_err_t canokey_storage_set_secret(const uint8_t *secret, size_t len)
+{
+    ESP_RETURN_ON_FALSE(len == CANOKEY_SECRET_SIZE, ESP_ERR_INVALID_SIZE, TAG, "secret size %u", (unsigned)len);
+    if (s_secret_set) {
+        return memcmp(s_secret, secret, len) == 0 ? ESP_OK : ESP_ERR_INVALID_ARG;
+    }
+    memcpy(s_secret, secret, len);
+    s_secret_set = true;
+
+    store_t *stores = s_stores[CANOKEY_PROFILE_PHONE_LOCKED];
+    /* Stores already set up must all open before a new one is set up under this secret. */
+    for (int i = 0; i < STORE_COUNT; i++) {
+        store_t *st = &stores[i];
+        if (store_ready(st) && (store_key_load(st, false) != ESP_OK || store_mount(st, false, false) != ESP_OK)) {
+            ESP_LOGW(TAG, "'%s' doesn't open with this secret", st->label);
+            for (int j = 0; j < STORE_COUNT; j++) {
+                store_unmount(&stores[j]);
+            }
+            forget_secret();
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
+    uint8_t id[CANOKEY_PROFILE_ID_SIZE];
+    if (!canokey_storage_phone_locked_id(id)) {
+        ESP_RETURN_ON_ERROR(phone_locked_id_set(true), TAG, "profile id");
+    }
+    for (int i = 0; i < STORE_COUNT; i++) {
+        store_t *st = &stores[i];
+        if (!st->mounted) {
+            ESP_LOGI(TAG, "setting up '%s'", st->label);
+            ESP_RETURN_ON_ERROR(store_key_load(st, true), TAG, "%s: key", st->label);
+            ESP_RETURN_ON_ERROR(store_mount(st, true, true), TAG, "%s: format", st->label);
+            ESP_RETURN_ON_ERROR(store_set_ready(st, true), TAG, "%s: flag", st->label);
+        }
+    }
+    ESP_LOGI(TAG, "phone-locked profile open");
+    return ESP_OK;
+}
+
+/* Erases a store under a new salt. Without the secret a phone-locked store is only erased, and set up again with it. */
+static esp_err_t store_wipe(store_t *st)
+{
+    store_unmount(st);
+    if (st->ready_name && !s_secret_set) {
+        uint8_t salt[STORAGE_SALT_SIZE];
+        ESP_RETURN_ON_ERROR(store_salt(st, true, salt), TAG, "%s: salt", st->label);
+        ESP_RETURN_ON_ERROR(store_set_ready(st, false), TAG, "%s: flag", st->label);
+        ESP_RETURN_ON_FALSE(esp_partition_erase_range(st->part, 0, st->part->size) == ESP_OK, ESP_FAIL, TAG,
+                            "%s: erase", st->label);
+        return ESP_OK;
+    }
+    ESP_RETURN_ON_ERROR(store_key_load(st, true), TAG, "%s: key", st->label);
+    return store_mount(st, true, true);
+}
+
+esp_err_t canokey_storage_wipe_fido(canokey_profile_t profile)
+{
+    return store_wipe(&s_stores[profile][STORE_FIDO]);
+}
+
+esp_err_t canokey_storage_wipe_profile(canokey_profile_t profile)
+{
+    if (profile == CANOKEY_PROFILE_PHONE_LOCKED) {
+        forget_secret();
+        ESP_RETURN_ON_ERROR(phone_locked_id_set(false), TAG, "profile id");
+    }
+    for (int i = 0; i < STORE_COUNT; i++) {
+        ESP_RETURN_ON_ERROR(store_wipe(&s_stores[profile][i]), TAG, "wipe");
+    }
+    return ESP_OK;
 }
 
 /* ---- routing: canokey's file functions (linked with -Wl,--wrap) ----------- */
 
 static lfs_t *route(const char *path)
 {
-    return strncmp(path, PGP_FILE_PREFIX, strlen(PGP_FILE_PREFIX)) == 0 ? &s_pgp.lfs : &s_fido.lfs;
+    bool pgp = strncmp(path, PGP_FILE_PREFIX, strlen(PGP_FILE_PREFIX)) == 0;
+    store_t *st = &s_stores[s_active][pgp ? STORE_PGP : STORE_FIDO];
+    return st->mounted ? &st->lfs : NULL;
 }
 
 #define ROUTED(path, call)                  \
     do {                                    \
-        canokey_fs_lfs = route(path);       \
+        lfs_t *lfs_ = route(path);          \
+        if (!lfs_) {                        \
+            return LFS_ERR_IO;              \
+        }                                   \
+        canokey_fs_lfs = lfs_;              \
         int rc_ = (call);                   \
-        canokey_fs_lfs = &s_fido.lfs;       \
+        canokey_fs_lfs = active_fido_lfs(); \
         return rc_;                         \
     } while (0)
 

@@ -133,6 +133,16 @@ void ccid_glue_log_diagnostics(void)
              s_events ? (unsigned)uxQueueMessagesWaiting(s_events) : 0, s_in_state);
 }
 
+#define RDR_TO_PC_NOTIFYSLOTCHANGE  0x50
+#define SLOT0_PRESENT               0x01
+#define SLOT0_CHANGED               0x02
+
+esp_err_t ccid_glue_notify_slot(bool present)
+{
+    const uint8_t msg[] = { RDR_TO_PC_NOTIFYSLOTCHANGE, SLOT0_CHANGED | (present ? SLOT0_PRESENT : 0) };
+    return usb_hid_ccid_notify(msg, sizeof(msg));
+}
+
 esp_err_t ccid_glue_start(void)
 {
     if (s_events) {

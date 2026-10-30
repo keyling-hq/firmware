@@ -12,4 +12,7 @@ void ccid_glue_poll(void);
 /** True while a response is on its way to the host. */
 bool ccid_glue_sending(void);
 
+/** Tells the host the card was inserted or removed. Fails while USB can't take it yet: retry. */
+esp_err_t ccid_glue_notify_slot(bool present);
+
 void ccid_glue_log_diagnostics(void);

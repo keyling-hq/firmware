@@ -19,8 +19,24 @@ typedef enum {
     UI_ACTION_FORGET_PHONE,
     UI_ACTION_FACTORY_RESET,
     UI_ACTION_FIDO_CONFIRM,
+    UI_ACTION_FIDO_RESET_CONFIRM,   /* arg: ui_profile_t whose credentials the reset erases */
     UI_ACTION_LOG_DIAGNOSTICS,
+    UI_ACTION_SELECT_PROFILE,       /* arg: ui_profile_t */
+    UI_ACTION_DEFAULT_PROFILE,      /* arg: ui_profile_t, also made active */
+    UI_ACTION_RESET_PROFILE,        /* arg: ui_profile_t; the user already confirmed */
 } ui_action_t;
+
+typedef enum {
+    UI_PROFILE_MAIN,
+    UI_PROFILE_PHONE_LOCKED,
+    UI_PROFILE_COUNT,
+} ui_profile_t;
+
+typedef enum {
+    UI_PHONE_LOCKED_OPEN,
+    UI_PHONE_LOCKED_NEW,
+    UI_PHONE_LOCKED_WAITING,
+} ui_phone_locked_state_t;
 
 typedef enum {
     UI_BLE_ADVERTISING,         /* bonded phone not connected */
@@ -53,12 +69,19 @@ typedef enum {
     UI_FIDO_PGP_SIGN,
     UI_FIDO_PGP_DECRYPT,
     UI_FIDO_PGP_AUTH,
+    UI_FIDO_PROFILE_RESET,      /* the phone asks to reset the profile named by rp_id */
 } ui_fido_request_t;
 
 /** A security key request waits for the user: shows what is asked and a hold-to-approve button. */
 void ui_show_fido_request(ui_fido_request_t kind, const char *rp_id);
 /** The request was answered (approved) or ended without approval: shows the outcome briefly. */
 void ui_show_fido_done(bool approved);
+
+/** The security key profiles: the active one is named on the home screen. */
+void ui_set_profiles(ui_profile_t active, ui_profile_t default_profile, ui_phone_locked_state_t phone_locked_state);
+
+/** A request was refused because the active profile is locked: says so briefly. */
+void ui_show_profile_locked(void);
 void ui_set_usb_state(bool mounted);
 void ui_set_ble_state(ui_ble_state_t state);
 void ui_show_typing(bool typing);

@@ -13,13 +13,31 @@ class Result(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     RESULT_INVALID: _ClassVar[Result]
     RESULT_FAILED: _ClassVar[Result]
     RESULT_ABORTED: _ClassVar[Result]
+
+class Profile(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    PROFILE_MAIN: _ClassVar[Profile]
+    PROFILE_PHONE_LOCKED: _ClassVar[Profile]
+
+class PhoneLockedState(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    PHONE_LOCKED_UNKNOWN: _ClassVar[PhoneLockedState]
+    PHONE_LOCKED_NEW: _ClassVar[PhoneLockedState]
+    PHONE_LOCKED_WAITING: _ClassVar[PhoneLockedState]
+    PHONE_LOCKED_OPEN: _ClassVar[PhoneLockedState]
 RESULT_OK: Result
 RESULT_INVALID: Result
 RESULT_FAILED: Result
 RESULT_ABORTED: Result
+PROFILE_MAIN: Profile
+PROFILE_PHONE_LOCKED: Profile
+PHONE_LOCKED_UNKNOWN: PhoneLockedState
+PHONE_LOCKED_NEW: PhoneLockedState
+PHONE_LOCKED_WAITING: PhoneLockedState
+PHONE_LOCKED_OPEN: PhoneLockedState
 
 class Request(_message.Message):
-    __slots__ = ("id", "text", "key_combo", "consumer", "keyboard_report", "strokes", "ping", "get_config", "set_config", "get_device_info", "get_logs", "ota_begin", "ota_data", "ota_end", "ota_abort")
+    __slots__ = ("id", "text", "key_combo", "consumer", "keyboard_report", "strokes", "ping", "get_config", "set_config", "get_device_info", "get_logs", "get_profiles", "select_profile", "profile_secret", "reset_profile", "ota_begin", "ota_data", "ota_end", "ota_abort")
     ID_FIELD_NUMBER: _ClassVar[int]
     TEXT_FIELD_NUMBER: _ClassVar[int]
     KEY_COMBO_FIELD_NUMBER: _ClassVar[int]
@@ -31,6 +49,10 @@ class Request(_message.Message):
     SET_CONFIG_FIELD_NUMBER: _ClassVar[int]
     GET_DEVICE_INFO_FIELD_NUMBER: _ClassVar[int]
     GET_LOGS_FIELD_NUMBER: _ClassVar[int]
+    GET_PROFILES_FIELD_NUMBER: _ClassVar[int]
+    SELECT_PROFILE_FIELD_NUMBER: _ClassVar[int]
+    PROFILE_SECRET_FIELD_NUMBER: _ClassVar[int]
+    RESET_PROFILE_FIELD_NUMBER: _ClassVar[int]
     OTA_BEGIN_FIELD_NUMBER: _ClassVar[int]
     OTA_DATA_FIELD_NUMBER: _ClassVar[int]
     OTA_END_FIELD_NUMBER: _ClassVar[int]
@@ -46,11 +68,15 @@ class Request(_message.Message):
     set_config: SetConfig
     get_device_info: GetDeviceInfo
     get_logs: GetLogs
+    get_profiles: GetProfiles
+    select_profile: SelectProfile
+    profile_secret: ProfileSecret
+    reset_profile: ResetProfile
     ota_begin: OtaBegin
     ota_data: OtaData
     ota_end: OtaEnd
     ota_abort: OtaAbort
-    def __init__(self, id: _Optional[int] = ..., text: _Optional[_Union[Text, _Mapping]] = ..., key_combo: _Optional[_Union[KeyCombo, _Mapping]] = ..., consumer: _Optional[_Union[Consumer, _Mapping]] = ..., keyboard_report: _Optional[_Union[KeyboardReport, _Mapping]] = ..., strokes: _Optional[_Union[Strokes, _Mapping]] = ..., ping: _Optional[_Union[Ping, _Mapping]] = ..., get_config: _Optional[_Union[GetConfig, _Mapping]] = ..., set_config: _Optional[_Union[SetConfig, _Mapping]] = ..., get_device_info: _Optional[_Union[GetDeviceInfo, _Mapping]] = ..., get_logs: _Optional[_Union[GetLogs, _Mapping]] = ..., ota_begin: _Optional[_Union[OtaBegin, _Mapping]] = ..., ota_data: _Optional[_Union[OtaData, _Mapping]] = ..., ota_end: _Optional[_Union[OtaEnd, _Mapping]] = ..., ota_abort: _Optional[_Union[OtaAbort, _Mapping]] = ...) -> None: ...
+    def __init__(self, id: _Optional[int] = ..., text: _Optional[_Union[Text, _Mapping]] = ..., key_combo: _Optional[_Union[KeyCombo, _Mapping]] = ..., consumer: _Optional[_Union[Consumer, _Mapping]] = ..., keyboard_report: _Optional[_Union[KeyboardReport, _Mapping]] = ..., strokes: _Optional[_Union[Strokes, _Mapping]] = ..., ping: _Optional[_Union[Ping, _Mapping]] = ..., get_config: _Optional[_Union[GetConfig, _Mapping]] = ..., set_config: _Optional[_Union[SetConfig, _Mapping]] = ..., get_device_info: _Optional[_Union[GetDeviceInfo, _Mapping]] = ..., get_logs: _Optional[_Union[GetLogs, _Mapping]] = ..., get_profiles: _Optional[_Union[GetProfiles, _Mapping]] = ..., select_profile: _Optional[_Union[SelectProfile, _Mapping]] = ..., profile_secret: _Optional[_Union[ProfileSecret, _Mapping]] = ..., reset_profile: _Optional[_Union[ResetProfile, _Mapping]] = ..., ota_begin: _Optional[_Union[OtaBegin, _Mapping]] = ..., ota_data: _Optional[_Union[OtaData, _Mapping]] = ..., ota_end: _Optional[_Union[OtaEnd, _Mapping]] = ..., ota_abort: _Optional[_Union[OtaAbort, _Mapping]] = ...) -> None: ...
 
 class Text(_message.Message):
     __slots__ = ("text",)
@@ -110,6 +136,30 @@ class GetLogs(_message.Message):
     since: int
     def __init__(self, since: _Optional[int] = ...) -> None: ...
 
+class GetProfiles(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class SelectProfile(_message.Message):
+    __slots__ = ("profile", "make_default")
+    PROFILE_FIELD_NUMBER: _ClassVar[int]
+    MAKE_DEFAULT_FIELD_NUMBER: _ClassVar[int]
+    profile: Profile
+    make_default: bool
+    def __init__(self, profile: _Optional[_Union[Profile, str]] = ..., make_default: _Optional[bool] = ...) -> None: ...
+
+class ProfileSecret(_message.Message):
+    __slots__ = ("secret",)
+    SECRET_FIELD_NUMBER: _ClassVar[int]
+    secret: bytes
+    def __init__(self, secret: _Optional[bytes] = ...) -> None: ...
+
+class ResetProfile(_message.Message):
+    __slots__ = ("profile",)
+    PROFILE_FIELD_NUMBER: _ClassVar[int]
+    profile: Profile
+    def __init__(self, profile: _Optional[_Union[Profile, str]] = ...) -> None: ...
+
 class OtaBegin(_message.Message):
     __slots__ = ("size", "sha256")
     SIZE_FIELD_NUMBER: _ClassVar[int]
@@ -147,7 +197,7 @@ class Config(_message.Message):
     def __init__(self, layout: _Optional[str] = ..., key_press_ms: _Optional[int] = ..., key_release_ms: _Optional[int] = ..., available_layouts: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class Event(_message.Message):
-    __slots__ = ("hello", "credits", "ack", "status", "config", "device_info", "logs")
+    __slots__ = ("hello", "credits", "ack", "status", "config", "device_info", "logs", "profiles")
     HELLO_FIELD_NUMBER: _ClassVar[int]
     CREDITS_FIELD_NUMBER: _ClassVar[int]
     ACK_FIELD_NUMBER: _ClassVar[int]
@@ -155,6 +205,7 @@ class Event(_message.Message):
     CONFIG_FIELD_NUMBER: _ClassVar[int]
     DEVICE_INFO_FIELD_NUMBER: _ClassVar[int]
     LOGS_FIELD_NUMBER: _ClassVar[int]
+    PROFILES_FIELD_NUMBER: _ClassVar[int]
     hello: Hello
     credits: Credits
     ack: Ack
@@ -162,7 +213,8 @@ class Event(_message.Message):
     config: Config
     device_info: DeviceInfo
     logs: Logs
-    def __init__(self, hello: _Optional[_Union[Hello, _Mapping]] = ..., credits: _Optional[_Union[Credits, _Mapping]] = ..., ack: _Optional[_Union[Ack, _Mapping]] = ..., status: _Optional[_Union[Status, _Mapping]] = ..., config: _Optional[_Union[Config, _Mapping]] = ..., device_info: _Optional[_Union[DeviceInfo, _Mapping]] = ..., logs: _Optional[_Union[Logs, _Mapping]] = ...) -> None: ...
+    profiles: Profiles
+    def __init__(self, hello: _Optional[_Union[Hello, _Mapping]] = ..., credits: _Optional[_Union[Credits, _Mapping]] = ..., ack: _Optional[_Union[Ack, _Mapping]] = ..., status: _Optional[_Union[Status, _Mapping]] = ..., config: _Optional[_Union[Config, _Mapping]] = ..., device_info: _Optional[_Union[DeviceInfo, _Mapping]] = ..., logs: _Optional[_Union[Logs, _Mapping]] = ..., profiles: _Optional[_Union[Profiles, _Mapping]] = ...) -> None: ...
 
 class Hello(_message.Message):
     __slots__ = ("protocol_version", "max_frame", "firmware_version", "capabilities")
@@ -273,3 +325,15 @@ class Logs(_message.Message):
     next: int
     end: int
     def __init__(self, start: _Optional[int] = ..., data: _Optional[bytes] = ..., next: _Optional[int] = ..., end: _Optional[int] = ...) -> None: ...
+
+class Profiles(_message.Message):
+    __slots__ = ("active", "default_profile", "phone_locked_state", "phone_locked_id")
+    ACTIVE_FIELD_NUMBER: _ClassVar[int]
+    DEFAULT_PROFILE_FIELD_NUMBER: _ClassVar[int]
+    PHONE_LOCKED_STATE_FIELD_NUMBER: _ClassVar[int]
+    PHONE_LOCKED_ID_FIELD_NUMBER: _ClassVar[int]
+    active: Profile
+    default_profile: Profile
+    phone_locked_state: PhoneLockedState
+    phone_locked_id: bytes
+    def __init__(self, active: _Optional[_Union[Profile, str]] = ..., default_profile: _Optional[_Union[Profile, str]] = ..., phone_locked_state: _Optional[_Union[PhoneLockedState, str]] = ..., phone_locked_id: _Optional[bytes] = ...) -> None: ...

@@ -29,6 +29,7 @@ typedef enum {
 
 static const ui_app_t *const s_apps[] = {
     &ui_app_jiggler,
+    &ui_app_profiles,
     &ui_app_settings,
 };
 #define APP_COUNT (sizeof(s_apps) / sizeof(s_apps[0]))
@@ -50,6 +51,11 @@ static ui_fido_request_t s_fido_kind;
 static char s_fido_rp_id[64];
 static bool s_fido_result_shown;
 static bool s_fido_approved;
+static bool s_fido_locked;
+static lv_timer_t *s_fido_result_timer;
+static ui_profile_t s_profile_active;
+static ui_profile_t s_profile_default;
+static ui_phone_locked_state_t s_phone_locked_state = UI_PHONE_LOCKED_NEW;
 static bool s_pairing;
 static uint32_t s_pairing_passkey;
 static char s_pairing_qr[UI_PAIRING_QR_MAX];
@@ -331,15 +337,19 @@ static const char *ble_state_text(void)
     }
 }
 
+static bool profile_locked(void)
+{
+    return s_profile_active == UI_PROFILE_PHONE_LOCKED && s_phone_locked_state != UI_PHONE_LOCKED_OPEN;
+}
+
 static void update_status(void)
 {
     if (!s_status) {
         return;
     }
-    settings_t settings;
-    settings_get(&settings);
-    lv_label_set_text_fmt(s_status, "BLE %s  USB %s  %s", ble_state_text(),
-                          s_usb_mounted ? "ok" : "--", settings.layout);
+    lv_label_set_text_fmt(s_status, "%s%s  BLE %s  USB %s", ui_profile_name(s_profile_active),
+                          profile_locked() ? " " LV_SYMBOL_WARNING : "", ble_state_text(),
+                          s_usb_mounted ? "ok" : "--");
 }
 
 static void show_carousel_item(void)
@@ -390,6 +400,8 @@ static void show_launcher(void)
 {
     lv_obj_t *scr = screen_begin(NULL);
     s_status = lv_label_create(scr);
+    lv_obj_set_width(s_status, lv_pct(100));
+    lv_label_set_long_mode(s_status, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
     update_status();
 
     lv_obj_t *focus = NULL;
@@ -484,9 +496,44 @@ static void fido_approve(void)
     ui_emit(UI_ACTION_FIDO_CONFIRM, 0);
 }
 
+static void fido_reset_default(void)
+{
+    ui_emit(UI_ACTION_FIDO_RESET_CONFIRM, UI_PROFILE_MAIN);
+}
+
+static void fido_reset_phone_locked(void)
+{
+    ui_emit(UI_ACTION_FIDO_RESET_CONFIRM, UI_PROFILE_PHONE_LOCKED);
+}
+
+/* A security key reset erases one profile's credentials: a hold button per profile picks it. */
+static void show_fido_reset(void)
+{
+    static const ui_screen_fn_t confirm[UI_PROFILE_COUNT] = {
+        [UI_PROFILE_MAIN] = fido_reset_default,
+        [UI_PROFILE_PHONE_LOCKED] = fido_reset_phone_locked,
+    };
+    lv_obj_t *list = ui_menu_begin("Erase security key?", NULL);
+    lv_obj_t *focus = NULL;
+    for (int i = 0; i < UI_PROFILE_COUNT; i++) {
+        char text[32];
+        snprintf(text, sizeof(text), "Hold: %s", ui_profile_name(i));
+        lv_obj_t *hold = ui_hold_add(list, text, UI_HOLD_CONFIRM_MS, confirm[i]);
+        lv_obj_remove_event_cb(hold, item_key_cb);
+        if (i == (int)s_profile_active) {
+            focus = hold;
+        }
+    }
+    ui_menu_end(list, focus);
+}
+
 /* Double click must not approve (or leave) here: only the hold button answers the request. */
 static void show_fido(void)
 {
+    if (s_fido_kind == UI_FIDO_RESET) {
+        show_fido_reset();
+        return;
+    }
     static const char *const titles[] = {
         [UI_FIDO_OTHER] = "Security key",
         [UI_FIDO_REGISTER] = "Register on",
@@ -496,13 +543,15 @@ static void show_fido(void)
         [UI_FIDO_PGP_SIGN] = "Sign with key?",
         [UI_FIDO_PGP_DECRYPT] = "Decrypt with key?",
         [UI_FIDO_PGP_AUTH] = "Log in with key?",
+        [UI_FIDO_PROFILE_RESET] = "Erase profile?",
     };
     static const char *const subtitles[] = {
         [UI_FIDO_PGP_SIGN] = "OpenPGP",
         [UI_FIDO_PGP_DECRYPT] = "OpenPGP",
         [UI_FIDO_PGP_AUTH] = "SSH / OpenPGP",
     };
-    const char *subtitle = s_fido_kind == UI_FIDO_REGISTER || s_fido_kind == UI_FIDO_SIGN_IN ? s_fido_rp_id
+    bool named = s_fido_kind == UI_FIDO_REGISTER || s_fido_kind == UI_FIDO_SIGN_IN || s_fido_kind == UI_FIDO_PROFILE_RESET;
+    const char *subtitle = named ? s_fido_rp_id
                            : s_fido_kind < sizeof(subtitles) / sizeof(subtitles[0])            ? subtitles[s_fido_kind]
                                                                                               : NULL;
     lv_obj_t *list = ui_menu_begin(titles[s_fido_kind], NULL);
@@ -512,27 +561,49 @@ static void show_fido(void)
         lv_label_set_long_mode(rp, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
         lv_label_set_text(rp, subtitle);
     }
-    const char *verb = s_fido_kind == UI_FIDO_RESET ? "Hold to erase" : "Hold to approve";
-    lv_obj_t *hold = ui_hold_add(list, verb, UI_HOLD_CONFIRM_MS, fido_approve);
+    const char *verb = s_fido_kind == UI_FIDO_PROFILE_RESET ? "Hold to erase" : "Hold to approve";
+    uint32_t hold_ms = s_fido_kind == UI_FIDO_PROFILE_RESET ? UI_HOLD_RESET_MS : UI_HOLD_CONFIRM_MS;
+    lv_obj_t *hold = ui_hold_add(list, verb, hold_ms, fido_approve);
     lv_obj_remove_event_cb(hold, item_key_cb);
     ui_menu_end(list, hold);
 }
 
 static void fido_result_timer_cb(lv_timer_t *timer)
 {
+    s_fido_result_timer = NULL;
     s_fido_result_shown = false;
+    s_fido_locked = false;
     update_overlay();
+}
+
+static void fido_result_show_for(uint32_t ms)
+{
+    s_fido_result_shown = true;
+    if (s_fido_result_timer) {
+        lv_timer_set_period(s_fido_result_timer, ms);
+        lv_timer_reset(s_fido_result_timer);
+    } else {
+        s_fido_result_timer = lv_timer_create(fido_result_timer_cb, ms, NULL);
+        lv_timer_set_repeat_count(s_fido_result_timer, 1);
+    }
 }
 
 static void show_fido_result(void)
 {
-    lv_obj_t *list = ui_menu_begin("Security key", NULL);
+    lv_obj_t *list = ui_menu_begin(s_fido_locked ? ui_profile_name(s_profile_active) : "Security key", NULL);
     lv_obj_t *result = lv_label_create(list);
     lv_obj_set_width(result, lv_pct(100));
     lv_obj_set_style_text_align(result, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_font(result, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(result, lv_palette_main(s_fido_approved ? LV_PALETTE_GREEN : LV_PALETTE_RED), 0);
-    lv_label_set_text(result, s_fido_approved ? LV_SYMBOL_OK " Approved" : LV_SYMBOL_CLOSE " Not approved");
+    if (s_fido_locked) {
+        lv_obj_set_style_text_color(result, lv_palette_main(LV_PALETTE_AMBER), 0);
+        lv_label_set_text(result, LV_SYMBOL_WARNING " Locked");
+        lv_obj_t *hint = lv_label_create(list);
+        lv_label_set_text(hint, "Waiting for phone");
+    } else {
+        lv_obj_set_style_text_color(result, lv_palette_main(s_fido_approved ? LV_PALETTE_GREEN : LV_PALETTE_RED), 0);
+        lv_label_set_text(result, s_fido_approved ? LV_SYMBOL_OK " Approved" : LV_SYMBOL_CLOSE " Not approved");
+    }
     ui_menu_end(list, NULL);
 }
 
@@ -749,10 +820,63 @@ void ui_show_fido_done(bool approved)
     }
     s_fido_waiting = false;
     s_fido_approved = approved;
-    s_fido_result_shown = true;
-    lv_timer_t *timer = lv_timer_create(fido_result_timer_cb, FIDO_RESULT_MS, NULL);
-    lv_timer_set_repeat_count(timer, 1);
+    s_fido_locked = false;
+    fido_result_show_for(FIDO_RESULT_MS);
     update_overlay();
+    lvgl_port_unlock();
+}
+
+#define LOCKED_NOTICE_MS    2500
+
+void ui_show_profile_locked(void)
+{
+    if (!lvgl_port_lock(PROMPT_LOCK_MS)) {
+        return;
+    }
+    if (!s_fido_waiting) {
+        bool shown = s_fido_result_shown && s_fido_locked;
+        s_fido_locked = true;
+        fido_result_show_for(LOCKED_NOTICE_MS);
+        if (!shown && s_overlay == OVERLAY_FIDO_RESULT) {
+            navigate(show_fido_result);
+        }
+        update_overlay();
+    }
+    lvgl_port_unlock();
+}
+
+const char *ui_profile_name(ui_profile_t profile)
+{
+    return profile == UI_PROFILE_PHONE_LOCKED ? "Phone-locked" : "Main";
+}
+
+ui_profile_t ui_profile_active(void)
+{
+    return s_profile_active;
+}
+
+ui_profile_t ui_profile_default(void)
+{
+    return s_profile_default;
+}
+
+ui_phone_locked_state_t ui_phone_locked_state(void)
+{
+    return s_phone_locked_state;
+}
+
+void ui_set_profiles(ui_profile_t active, ui_profile_t default_profile, ui_phone_locked_state_t phone_locked_state)
+{
+    if (!lvgl_port_lock(PROMPT_LOCK_MS)) {
+        return;
+    }
+    s_profile_active = active;
+    s_profile_default = default_profile;
+    s_phone_locked_state = phone_locked_state;
+    update_status();
+    if (s_app == &ui_app_profiles && s_overlay == OVERLAY_NONE) {
+        navigate(show_home);
+    }
     lvgl_port_unlock();
 }
 

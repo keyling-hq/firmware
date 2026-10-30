@@ -67,3 +67,8 @@ esp_err_t usb_hid_ccid_send(const uint8_t *data, size_t len)
 {
     return ESP_ERR_NOT_SUPPORTED;
 }
+
+esp_err_t usb_hid_ccid_notify(const uint8_t *data, size_t len)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}

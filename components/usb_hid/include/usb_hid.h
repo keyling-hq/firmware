@@ -60,6 +60,13 @@ void usb_hid_ccid_set_callbacks(usb_hid_ccid_rx_cb_t rx, usb_hid_ccid_tx_done_cb
  */
 esp_err_t usb_hid_ccid_send(const uint8_t *data, size_t len);
 
+/**
+ * Sends a message of up to 8 bytes on the interrupt endpoint (slot change notifications). Copies
+ * the data. ESP_ERR_INVALID_STATE while not mounted, ESP_ERR_NOT_FINISHED while the previous one
+ * hasn't been collected by the host.
+ */
+esp_err_t usb_hid_ccid_notify(const uint8_t *data, size_t len);
+
 #ifdef __cplusplus
 }
 #endif

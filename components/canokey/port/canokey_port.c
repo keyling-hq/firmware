@@ -1,10 +1,12 @@
 #include <string.h>
 #include "canokey_port.h"
+#include "canokey_gate.h"
 #include "canokey_storage.h"
 #include "ctap_request.h"
 #include "ccid_glue.h"
 #include "ctaphid_glue.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "esp_attr.h"
@@ -14,6 +16,7 @@
 #include "esp_system.h"
 #include "esp_random.h"
 #include "esp_timer.h"
+#include "usb_hid.h"
 #include "nvs.h"
 #include <stdio.h>
 #include <apdu.h>
@@ -37,6 +40,7 @@ static const char *TAG = "canokey";
 
 #define NVS_NAMESPACE       "canokey"
 #define NVS_CONFIG_PAGE     "cfgpage"
+#define NVS_DEFAULT_PROFILE "profile"
 
 extern const uint8_t canokey_dev_attestation_key[32];
 extern const uint8_t canokey_dev_attestation_cert[];
@@ -51,9 +55,17 @@ static int s_boot_fs_used;
 static int s_boot_fs_size;
 static int s_boot_cert_size;
 static canokey_presence_cb_t s_presence_cb;
-static void *s_presence_ctx;
+static canokey_event_cb_t s_event_cb;
+static void *s_cb_ctx;
 static volatile bool s_presence_waiting;
 static volatile bool s_fido_wipe_pending;
+
+static volatile canokey_profile_t s_profile;
+static canokey_profile_t s_default_profile;
+static volatile bool s_profile_open;
+static canokey_profile_t s_store_profile;
+static volatile canokey_profile_t s_reset_target;
+static canokey_profile_t s_fido_wipe_target;
 
 /* ---- platform hooks required by canokey-core (include/device.h) ---------- */
 
@@ -257,12 +269,18 @@ uint8_t device_config_is_piv_nfc_enabled(void)
     return 0;
 }
 
-/* The OpenPGP card's serial number: the low bytes of the chip's MAC address, stable per device. */
+/*
+ * The OpenPGP card's serial number: the low bytes of the chip's MAC address, stable per device.
+ * Each profile's card has its own, so the host sees a different card.
+ */
 void device_config_fill_serial(uint8_t *buf)
 {
     uint8_t mac[6] = { 0 };
     esp_efuse_mac_get_default(mac);
     memcpy(buf, mac + 2, 4);
+    if (s_profile == CANOKEY_PROFILE_PHONE_LOCKED) {
+        buf[0] ^= 0x80;
+    }
 }
 
 /* ---- attestation --------------------------------------------------------- */
@@ -298,7 +316,7 @@ static void report_presence(bool waiting, bool approved)
     const char *rp_id;
     ctap_request_current(&kind, &rp_id);
     if (s_presence_cb) {
-        s_presence_cb(waiting, kind, rp_id, approved, s_presence_ctx);
+        s_presence_cb(waiting, kind, rp_id, approved, s_cb_ctx);
     }
 }
 
@@ -355,6 +373,15 @@ void canokey_confirm_presence(void)
         set_touch_result(TOUCH_SHORT);
     }
 }
+
+void canokey_confirm_reset(canokey_profile_t profile)
+{
+    if (s_presence_waiting && profile < CANOKEY_PROFILE_COUNT) {
+        s_reset_target = profile;
+        set_touch_result(TOUCH_SHORT);
+    }
+}
+
 /* ---- applet session -------------------------------------------------------- */
 
 /* canokey lets another transport take over a session idle for 2 s, so this always ends with it. */
@@ -389,12 +416,254 @@ int __wrap_device_applet_session_acquire(device_applet_session_owner_t owner)
     return rc;
 }
 
+/* ---- profiles ------------------------------------------------------------ */
+
+static void notify(canokey_event_t event)
+{
+    if (s_event_cb) {
+        s_event_cb(event, s_cb_ctx);
+    }
+}
+
+bool canokey_port_locked(void)
+{
+    return !s_profile_open;
+}
+
+/*
+ * The card is in the slot while the active profile is open. A switch takes the card out and puts
+ * the new one in after a pause, so the host notices the change; the host is told each time over
+ * the interrupt endpoint, and the slot reports what it was last told.
+ */
+#define CARD_SWAP_MS        300
+
+static volatile bool s_card_swap;
+static bool s_card_present;
+static uint32_t s_card_removed_tick;
+
+uint8_t canokey_port_card_absent(void)
+{
+    return !s_card_present;
+}
+
+static void update_card(void)
+{
+    if (!usb_hid_is_mounted()) {
+        s_card_present = false;
+        return;
+    }
+    uint32_t now = device_get_tick();
+    if (s_card_swap && !s_card_present && now - s_card_removed_tick >= CARD_SWAP_MS) {
+        s_card_swap = false;
+    }
+    bool present = s_profile_open && !s_card_swap;
+    if (present == s_card_present || ccid_glue_notify_slot(present) != ESP_OK) {
+        return;
+    }
+    s_card_present = present;
+    s_card_removed_tick = now;
+}
+
+/* Hosts retry and probe in bursts: one report per burst is enough. */
+#define LOCKED_REPORT_MS    3000
+
+void canokey_port_report_locked(void)
+{
+    static uint32_t last;
+    static bool reported;
+    uint32_t now = device_get_tick();
+    if (reported && now - last < LOCKED_REPORT_MS) {
+        return;
+    }
+    reported = true;
+    last = now;
+    ESP_LOGW(TAG, "request refused: profile %d is locked", s_profile);
+    notify(CANOKEY_EVENT_LOCKED_REQUEST);
+}
+
+/*
+ * Runs the applets on a profile's stores. A locked profile's can't be read: the applets run on the
+ * default profile's instead, so getInfo and resets still work, and every other request is refused.
+ */
+static esp_err_t activate(canokey_profile_t profile)
+{
+    applets_poweroff();
+    s_profile = profile;
+    s_profile_open = false;
+    s_reset_target = profile;
+    bool open = canokey_storage_state(profile) == CANOKEY_PROFILE_OPEN;
+    s_store_profile = open ? profile : CANOKEY_PROFILE_MAIN;
+    ESP_RETURN_ON_ERROR(canokey_storage_select(s_store_profile), TAG, "select");
+    ESP_RETURN_ON_ERROR(install_applets(), TAG, "applets install");
+    ESP_RETURN_ON_ERROR(install_dev_attestation(), TAG, "attestation");
+    s_profile_open = open;
+    ESP_LOGI(TAG, "profile %d: %s", profile, open ? "active" : "locked");
+    return ESP_OK;
+}
+
+static canokey_profile_t default_profile_load(void)
+{
+    uint8_t profile = CANOKEY_PROFILE_MAIN;
+    nvs_handle_t nvs;
+    if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs) == ESP_OK) {
+        nvs_get_u8(nvs, NVS_DEFAULT_PROFILE, &profile);
+        nvs_close(nvs);
+    }
+    return profile < CANOKEY_PROFILE_COUNT ? profile : CANOKEY_PROFILE_MAIN;
+}
+
+static esp_err_t default_profile_store(canokey_profile_t profile)
+{
+    nvs_handle_t nvs;
+    ESP_RETURN_ON_ERROR(nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs), TAG, "nvs");
+    esp_err_t err = nvs_set_u8(nvs, NVS_DEFAULT_PROFILE, profile);
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+    if (err == ESP_OK) {
+        s_default_profile = profile;
+    }
+    return err;
+}
+
+void canokey_profiles_get(canokey_profiles_t *out)
+{
+    *out = (canokey_profiles_t){
+        .active = s_profile,
+        .default_profile = s_default_profile,
+        .phone_locked_state = canokey_storage_state(CANOKEY_PROFILE_PHONE_LOCKED),
+    };
+    out->has_phone_locked_id = canokey_storage_phone_locked_id(out->phone_locked_id);
+}
+
+/* ---- commands from other tasks, run on the canokey task ---------------------- */
+
+typedef enum {
+    CMD_SELECT,
+    CMD_SECRET,
+    CMD_RESET,
+} cmd_kind_t;
+
+typedef struct {
+    cmd_kind_t kind;
+    canokey_profile_t profile;
+    bool make_default;
+    uint8_t secret[CANOKEY_SECRET_SIZE];
+    size_t secret_len;
+    esp_err_t *result;      /* with done: the caller waits */
+    SemaphoreHandle_t done;
+} cmd_t;
+
+#define CMD_QUEUE_LEN       4
+
+static QueueHandle_t s_cmds;
+static SemaphoreHandle_t s_cmd_lock;
+static SemaphoreHandle_t s_cmd_done;
+
+static esp_err_t run_cmd(cmd_t *cmd)
+{
+    esp_err_t err = ESP_OK;
+    switch (cmd->kind) {
+    case CMD_SELECT:
+        if (cmd->make_default) {
+            err = default_profile_store(cmd->profile);
+        }
+        if (err == ESP_OK && cmd->profile != s_profile) {
+            s_card_swap = true;
+            err = activate(cmd->profile);
+        }
+        break;
+    case CMD_SECRET:
+        err = canokey_storage_set_secret(cmd->secret, cmd->secret_len);
+        if (err == ESP_OK && s_profile == CANOKEY_PROFILE_PHONE_LOCKED && !s_profile_open) {
+            err = activate(CANOKEY_PROFILE_PHONE_LOCKED);
+        }
+        break;
+    case CMD_RESET:
+        if (cmd->profile == s_store_profile) {
+            applets_poweroff();
+            s_profile_open = false;
+        }
+        err = canokey_storage_wipe_profile(cmd->profile);
+        if (err == ESP_OK && cmd->profile == s_store_profile) {
+            err = activate(s_profile);
+        }
+        ESP_LOGI(TAG, "profile %d reset: %s", cmd->profile, esp_err_to_name(err));
+        break;
+    }
+    memset(cmd->secret, 0, sizeof(cmd->secret));
+    notify(CANOKEY_EVENT_PROFILES);
+    return err;
+}
+
+static void poll_cmds(void)
+{
+    cmd_t cmd;
+    while (xQueueReceive(s_cmds, &cmd, 0) == pdTRUE) {
+        esp_err_t err = run_cmd(&cmd);
+        if (cmd.done) {
+            *cmd.result = err;
+            xSemaphoreGive(cmd.done);
+        }
+    }
+}
+
+static esp_err_t post(cmd_t *cmd, bool wait)
+{
+    ESP_RETURN_ON_FALSE(s_running, ESP_ERR_INVALID_STATE, TAG, "not running");
+    ESP_RETURN_ON_FALSE(xTaskGetCurrentTaskHandle() != s_task, ESP_ERR_INVALID_STATE, TAG, "own task");
+    if (!wait) {
+        esp_err_t err = xQueueSend(s_cmds, cmd, 0) == pdTRUE ? ESP_OK : ESP_ERR_TIMEOUT;
+        memset(cmd->secret, 0, sizeof(cmd->secret));
+        return err;
+    }
+    esp_err_t result = ESP_FAIL;
+    xSemaphoreTake(s_cmd_lock, portMAX_DELAY);
+    cmd->result = &result;
+    cmd->done = s_cmd_done;
+    esp_err_t err = xQueueSend(s_cmds, cmd, portMAX_DELAY) == pdTRUE ? ESP_OK : ESP_ERR_TIMEOUT;
+    memset(cmd->secret, 0, sizeof(cmd->secret));
+    if (err == ESP_OK) {
+        xSemaphoreTake(s_cmd_done, portMAX_DELAY);
+        err = result;
+    }
+    xSemaphoreGive(s_cmd_lock);
+    return err;
+}
+
+esp_err_t canokey_select_profile(canokey_profile_t profile, bool make_default, bool wait)
+{
+    ESP_RETURN_ON_FALSE(profile < CANOKEY_PROFILE_COUNT, ESP_ERR_INVALID_ARG, TAG, "profile");
+    cmd_t cmd = { .kind = CMD_SELECT, .profile = profile, .make_default = make_default };
+    return post(&cmd, wait);
+}
+
+esp_err_t canokey_set_secret(const uint8_t *secret, size_t len)
+{
+    ESP_RETURN_ON_FALSE(len == CANOKEY_SECRET_SIZE, ESP_ERR_INVALID_SIZE, TAG, "secret size");
+    cmd_t cmd = { .kind = CMD_SECRET, .secret_len = len };
+    memcpy(cmd.secret, secret, len);
+    return post(&cmd, true);
+}
+
+esp_err_t canokey_reset_profile(canokey_profile_t profile, bool wait)
+{
+    ESP_RETURN_ON_FALSE(profile < CANOKEY_PROFILE_COUNT, ESP_ERR_INVALID_ARG, TAG, "profile");
+    cmd_t cmd = { .kind = CMD_RESET, .profile = profile };
+    return post(&cmd, wait);
+}
+
 /* ---- security key reset ------------------------------------------------------ */
 
-/* Called by the generated ctap.c for an approved authenticatorReset, in place of ctap_install(1). */
+/*
+ * Called by the generated ctap.c for an approved authenticatorReset, in place of ctap_install(1).
+ * The prompt chose whose credentials are erased; only the active profile's applet is reset here.
+ */
 uint8_t canokey_port_fido_reset(void)
 {
-    uint8_t rc = ctap_install(1);
+    s_fido_wipe_target = s_reset_target;
+    uint8_t rc = s_fido_wipe_target == s_store_profile ? ctap_install(1) : 0;
     s_fido_wipe_pending = rc == 0;
     return rc;
 }
@@ -402,12 +671,16 @@ uint8_t canokey_port_fido_reset(void)
 /* Runs once the reset's response is out: erasing reuses the buffers it is sent from. */
 static void wipe_fido(void)
 {
-    if (canokey_storage_wipe_fido() != ESP_OK || ctap_install(1) != 0 || install_dev_attestation() != ESP_OK) {
+    canokey_profile_t target = s_fido_wipe_target;
+    bool active = target == s_store_profile;
+    if (canokey_storage_wipe_fido(target) != ESP_OK ||
+        (active && (ctap_install(1) != 0 || install_dev_attestation() != ESP_OK))) {
         s_status = "reset failed";
         ESP_LOGE(TAG, "security key reset: storage wipe failed");
-        return;
+    } else {
+        ESP_LOGI(TAG, "security key reset: profile %d erased", target);
     }
-    ESP_LOGI(TAG, "security key reset: storage erased");
+    notify(CANOKEY_EVENT_PROFILES);
 }
 
 /* ---- task ------------------------------------------------------------------ */
@@ -420,9 +693,9 @@ static esp_err_t startup(void)
     device_init();
     /* Points the APDU buffer shared by the applets at the CCID buffer. */
     init_apdu_buffer();
-    ESP_RETURN_ON_ERROR(install_applets(), TAG, "applets install");
-    s_status = "attest fail";
-    ESP_RETURN_ON_ERROR(install_dev_attestation(), TAG, "attestation");
+    s_default_profile = default_profile_load();
+    s_status = "install fail";
+    ESP_RETURN_ON_ERROR(activate(s_default_profile), TAG, "profile");
     s_boot_fs_used = get_fs_usage();
     s_boot_fs_size = get_fs_size();
     s_boot_cert_size = get_file_size(CTAP_CERT_FILE);
@@ -468,8 +741,11 @@ static void canokey_task(void *arg)
         vTaskDelete(NULL);
     }
     s_running = true;
+    notify(CANOKEY_EVENT_PROFILES);
     for (;;) {
         s_loop_tick = device_get_tick();
+        poll_cmds();
+        update_card();
         ccid_glue_poll();
         device_loop();
         if (s_fido_wipe_pending && !CTAPHID_TxBusy()) {
@@ -511,11 +787,16 @@ void canokey_log_diagnostics(void)
     }
 }
 
-esp_err_t canokey_start(canokey_presence_cb_t presence_cb, void *ctx)
+esp_err_t canokey_start(canokey_presence_cb_t presence_cb, canokey_event_cb_t event_cb, void *ctx)
 {
     s_presence_cb = presence_cb;
-    s_presence_ctx = ctx;
+    s_event_cb = event_cb;
+    s_cb_ctx = ctx;
     s_status = "starting";
+    s_cmds = xQueueCreate(CMD_QUEUE_LEN, sizeof(cmd_t));
+    s_cmd_lock = xSemaphoreCreateMutex();
+    s_cmd_done = xSemaphoreCreateBinary();
+    ESP_RETURN_ON_FALSE(s_cmds && s_cmd_lock && s_cmd_done, ESP_ERR_NO_MEM, TAG, "commands");
     s_timeout_lock = xSemaphoreCreateRecursiveMutex();
     ESP_RETURN_ON_FALSE(s_timeout_lock, ESP_ERR_NO_MEM, TAG, "timeout lock");
     const esp_timer_create_args_t timer_args = {

@@ -15,7 +15,7 @@ static const char *TAG = "usb_hid";
 
 #define USB_PID                 0x4F01
 /* Changes whenever the interface set does, so hosts don't reuse cached driver bindings. */
-#define USB_BCD_DEVICE          0x0200
+#define USB_BCD_DEVICE          0x0201
 #define HID_EP_SIZE             16
 #define HID_READY_TIMEOUT_MS    100
 
@@ -39,6 +39,7 @@ enum {
 #define EPNUM_FIDO_IN   0x82
 #define EPNUM_CCID_OUT  0x03
 #define EPNUM_CCID_IN   0x83
+#define EPNUM_CCID_INT  0x84
 
 enum {
     STRID_LANGID = 0,
@@ -52,18 +53,22 @@ enum {
 };
 
 /*
- * USB CCID 1.1 interface with one slot, T=1, extended APDUs and no interrupt endpoint (the card
- * can't be removed). Byte layout as in canokey-core's descriptor.
+ * USB CCID 1.1 interface with one slot, T=1 and extended APDUs. Byte layout as in canokey-core's
+ * descriptor. The interrupt endpoint tells the host when the card is removed or inserted: hosts
+ * don't poll for it.
  */
-#define TUD_CCID_DESC_LEN   (9 + 54 + 7 + 7)
-#define TUD_CCID_DESCRIPTOR(itf, stridx, epout, epin, epsize, max_message, max_ifsd)                              \
-    9, TUSB_DESC_INTERFACE, itf, 0, 2, TUSB_CLASS_SMART_CARD, 0, 0, stridx,                                       \
+#define CCID_INT_EP_SIZE    8
+#define CCID_INT_INTERVAL   16
+#define TUD_CCID_DESC_LEN   (9 + 54 + 7 + 7 + 7)
+#define TUD_CCID_DESCRIPTOR(itf, stridx, epout, epin, epint, epsize, max_message, max_ifsd)                       \
+    9, TUSB_DESC_INTERFACE, itf, 0, 3, TUSB_CLASS_SMART_CARD, 0, 0, stridx,                                       \
     54, 0x21, U16_TO_U8S_LE(0x0110), 0, 0x07, U32_TO_U8S_LE(0x00000002), U32_TO_U8S_LE(4000),                     \
     U32_TO_U8S_LE(4000), 0, U32_TO_U8S_LE(307200), U32_TO_U8S_LE(307200), 0, U32_TO_U8S_LE(max_ifsd),             \
     U32_TO_U8S_LE(0), U32_TO_U8S_LE(0), U32_TO_U8S_LE(0x000400FE), U32_TO_U8S_LE(max_message), 0xFF, 0xFF,       \
     U16_TO_U8S_LE(0), 0, 1,                                                                                       \
     7, TUSB_DESC_ENDPOINT, epin, TUSB_XFER_BULK, U16_TO_U8S_LE(epsize), 0,                                        \
-    7, TUSB_DESC_ENDPOINT, epout, TUSB_XFER_BULK, U16_TO_U8S_LE(epsize), 0
+    7, TUSB_DESC_ENDPOINT, epout, TUSB_XFER_BULK, U16_TO_U8S_LE(epsize), 0,                                       \
+    7, TUSB_DESC_ENDPOINT, epint, TUSB_XFER_INTERRUPT, U16_TO_U8S_LE(CCID_INT_EP_SIZE), CCID_INT_INTERVAL
 
 enum {
     REPORT_ID_KEYBOARD = 1,
@@ -88,7 +93,7 @@ static const uint8_t s_config_desc[] = {
     TUD_HID_DESCRIPTOR(ITF_NUM_HID, STRID_HID, HID_ITF_PROTOCOL_NONE, sizeof(s_hid_report_desc), EPNUM_HID, HID_EP_SIZE, 1),
     TUD_HID_INOUT_DESCRIPTOR(ITF_NUM_FIDO, STRID_FIDO, HID_ITF_PROTOCOL_NONE, sizeof(s_fido_report_desc),
                              EPNUM_FIDO_OUT, EPNUM_FIDO_IN, USB_HID_FIDO_REPORT_SIZE, FIDO_POLL_MS),
-    TUD_CCID_DESCRIPTOR(ITF_NUM_CCID, STRID_CCID, EPNUM_CCID_OUT, EPNUM_CCID_IN, USB_HID_CCID_PACKET_SIZE,
+    TUD_CCID_DESCRIPTOR(ITF_NUM_CCID, STRID_CCID, EPNUM_CCID_OUT, EPNUM_CCID_IN, EPNUM_CCID_INT, USB_HID_CCID_PACKET_SIZE,
                         USB_HID_CCID_MAX_MESSAGE, USB_HID_CCID_MAX_MESSAGE - 10),
 };
 
@@ -165,6 +170,8 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_
 
 static uint8_t s_ccid_ep_in;
 static uint8_t s_ccid_ep_out;
+static uint8_t s_ccid_ep_int;
+static CFG_TUSB_MEM_ALIGN uint8_t s_ccid_int_buf[CCID_INT_EP_SIZE];
 static CFG_TUSB_MEM_ALIGN uint8_t s_ccid_rx_buf[USB_HID_CCID_PACKET_SIZE];
 static usb_hid_ccid_rx_cb_t s_ccid_rx_cb;
 static usb_hid_ccid_tx_done_cb_t s_ccid_tx_done_cb;
@@ -183,6 +190,7 @@ static void ccid_reset(uint8_t rhport)
 {
     s_ccid_ep_in = 0;
     s_ccid_ep_out = 0;
+    s_ccid_ep_int = 0;
 }
 
 static uint16_t ccid_open(uint8_t rhport, tusb_desc_interface_t const *itf, uint16_t max_len)
@@ -196,6 +204,13 @@ static uint16_t ccid_open(uint8_t rhport, tusb_desc_interface_t const *itf, uint
     } while (len < max_len && tu_desc_type(p) != TUSB_DESC_ENDPOINT);
     TU_ASSERT(usbd_open_edpt_pair(rhport, p, 2, TUSB_XFER_BULK, &s_ccid_ep_out, &s_ccid_ep_in), 0);
     len += 2 * sizeof(tusb_desc_endpoint_t);
+    p = tu_desc_next(tu_desc_next(p));
+    if (len < max_len && tu_desc_type(p) == TUSB_DESC_ENDPOINT) {
+        tusb_desc_endpoint_t const *ep = (tusb_desc_endpoint_t const *)p;
+        TU_ASSERT(ep->bmAttributes.xfer == TUSB_XFER_INTERRUPT && usbd_edpt_open(rhport, ep), 0);
+        s_ccid_ep_int = ep->bEndpointAddress;
+        len += sizeof(tusb_desc_endpoint_t);
+    }
     TU_ASSERT(usbd_edpt_xfer(rhport, s_ccid_ep_out, s_ccid_rx_buf, sizeof(s_ccid_rx_buf), false), 0);
     return len;
 }
@@ -262,6 +277,22 @@ esp_err_t usb_hid_ccid_send(const uint8_t *data, size_t len)
     bool ok = usbd_edpt_xfer(0, s_ccid_ep_in, (uint8_t *)data, (uint16_t)len, false);
     if (!ok) {
         usbd_edpt_release(0, s_ccid_ep_in);
+    }
+    return ok ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t usb_hid_ccid_notify(const uint8_t *data, size_t len)
+{
+    if (!tud_mounted() || !s_ccid_ep_int || len > sizeof(s_ccid_int_buf)) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!usbd_edpt_claim(0, s_ccid_ep_int)) {
+        return ESP_ERR_NOT_FINISHED;
+    }
+    memcpy(s_ccid_int_buf, data, len);
+    bool ok = usbd_edpt_xfer(0, s_ccid_ep_int, s_ccid_int_buf, (uint16_t)len, false);
+    if (!ok) {
+        usbd_edpt_release(0, s_ccid_ep_int);
     }
     return ok ? ESP_OK : ESP_FAIL;
 }
