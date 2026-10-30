@@ -35,6 +35,7 @@ static protocol_handlers_t s_handlers;
 static void *s_ctx;
 static EventGroupHandle_t s_flags;
 static StreamBufferHandle_t s_rx;
+static TaskHandle_t s_task;
 
 static volatile bool s_session_requested;
 static volatile bool s_accepting;
@@ -442,8 +443,13 @@ esp_err_t protocol_start(const protocol_handlers_t *handlers, void *ctx)
     s_flags = xEventGroupCreate();
     s_rx = xStreamBufferCreate(RX_WINDOW, 1);
     ESP_RETURN_ON_FALSE(s_flags && s_rx, ESP_ERR_NO_MEM, TAG, "alloc");
-    BaseType_t ok = xTaskCreate(protocol_task, "protocol", 4096, NULL, 5, NULL);
+    BaseType_t ok = xTaskCreate(protocol_task, "protocol", 8192, NULL, 5, &s_task);
     return ok == pdPASS ? ESP_OK : ESP_ERR_NO_MEM;
+}
+
+unsigned protocol_stack_min_free(void)
+{
+    return s_task ? uxTaskGetStackHighWaterMark(s_task) : 0;
 }
 
 void protocol_session(bool active)

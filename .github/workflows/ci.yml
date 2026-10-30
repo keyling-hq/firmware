@@ -30,8 +30,11 @@ jobs:
           git diff --exit-code -- components/protocol tools/bridge_pb2.py tools/bridge_pb2.pyi
 
   build:
-    name: Build
+    name: Build ${{ matrix.env }}
     runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        env: [hid, release]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -39,5 +42,7 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/setup-build
       - name: Build
-        run: pio run -e hid
+        run: pio run -e ${{ matrix.env }}
+      - name: No eFuse-burning options
+        run: tools/check_no_efuse.sh sdkconfig.${{ matrix.env }}
 

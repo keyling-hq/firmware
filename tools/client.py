@@ -23,6 +23,7 @@ import argparse
 import asyncio
 import contextlib
 import hashlib
+import io
 import shlex
 import struct
 import sys
@@ -537,6 +538,8 @@ async def run(args):
 
 
 def main():
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        sys.stdout.reconfigure(errors="replace")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--name", help="advertised name to look for (default: any dongle with the bridge service)")
     ap.add_argument("--address", help="connect to this address instead of scanning")
