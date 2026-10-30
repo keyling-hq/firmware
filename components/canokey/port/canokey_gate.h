@@ -3,7 +3,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* The active profile isn't open (protected, waiting for its secret): its keys can't be used. */
+/* The active profile isn't open (phone-locked, waiting for its secret): its keys can't be used. */
 bool canokey_port_locked(void);
 
 /* A request was refused because the profile is locked; the user is told. */

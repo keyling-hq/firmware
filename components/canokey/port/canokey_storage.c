@@ -17,7 +17,7 @@ static const char *TAG = "canokey_fs";
 #define FS_LOOKAHEAD_SIZE   32
 
 #define NVS_NAMESPACE       "canokey"
-#define NVS_PROTECTED_ID    "pid"
+#define NVS_PHONE_LOCKED_ID    "pid"
 #define STORAGE_SALT_SIZE   16
 #define XTS_UNIT            16
 
@@ -28,7 +28,7 @@ enum { STORE_FIDO, STORE_PGP, STORE_COUNT };
 typedef struct {
     const char *label;      /* partition and keystore label */
     const char *salt_name;  /* NVS key of the store's salt */
-    const char *ready_name; /* protected stores: NVS flag, set once formatted under a secret */
+    const char *ready_name; /* phone-locked stores: NVS flag, set once formatted under a secret */
     const esp_partition_t *part;
     bool mounted;
     lfs_t lfs;
@@ -41,22 +41,22 @@ typedef struct {
 } store_t;
 
 static store_t s_stores[CANOKEY_PROFILE_COUNT][STORE_COUNT] = {
-    [CANOKEY_PROFILE_DEFAULT] = {
+    [CANOKEY_PROFILE_MAIN] = {
         [STORE_FIDO] = { .label = "fido", .salt_name = "fssalt" },
         [STORE_PGP] = { .label = "openpgp", .salt_name = "pgpsalt" },
     },
-    [CANOKEY_PROFILE_PROTECTED] = {
+    [CANOKEY_PROFILE_PHONE_LOCKED] = {
         [STORE_FIDO] = { .label = "fido_p", .salt_name = "fpsalt", .ready_name = "fpready" },
         [STORE_PGP] = { .label = "openpgp_p", .salt_name = "ppsalt", .ready_name = "ppready" },
     },
 };
-static canokey_profile_t s_active = CANOKEY_PROFILE_DEFAULT;
+static canokey_profile_t s_active = CANOKEY_PROFILE_MAIN;
 static uint8_t s_secret[CANOKEY_SECRET_SIZE];
 static bool s_secret_set;
 static uint8_t s_cipher_buf[FS_CACHE_SIZE];
 
 /* The filesystem the generated fs.c operates on; calls without a path get the active FIDO store. */
-lfs_t *canokey_fs_lfs = &s_stores[CANOKEY_PROFILE_DEFAULT][STORE_FIDO].lfs;
+lfs_t *canokey_fs_lfs = &s_stores[CANOKEY_PROFILE_MAIN][STORE_FIDO].lfs;
 
 static lfs_t *active_fido_lfs(void)
 {
@@ -203,7 +203,7 @@ static void store_unmount(store_t *st)
 }
 
 /*
- * Mounts with the current key. A store that doesn't mount is formatted only if allowed: protected
+ * Mounts with the current key. A store that doesn't mount is formatted only if allowed: phone-locked
  * stores never are, since a wrong secret must not destroy them. littlefs's format rewrites only
  * its superblocks, so the partition is erased first and no old block survives.
  */
@@ -257,7 +257,7 @@ esp_err_t canokey_storage_start(void)
         }
     }
     for (int i = 0; i < STORE_COUNT; i++) {
-        store_t *st = &s_stores[CANOKEY_PROFILE_DEFAULT][i];
+        store_t *st = &s_stores[CANOKEY_PROFILE_MAIN][i];
         /* Without the key a failed mount must not lead to a format. */
         ESP_RETURN_ON_ERROR(store_key_load(st, false), TAG, "%s: key", st->label);
         /* Also the path after a factory reset: the new keystore salt changes the store's key. */
@@ -299,7 +299,7 @@ static void forget_secret(void)
     s_secret_set = false;
 }
 
-static esp_err_t protected_id_set(bool create)
+static esp_err_t phone_locked_id_set(bool create)
 {
     nvs_handle_t nvs;
     ESP_RETURN_ON_ERROR(nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs), TAG, "nvs");
@@ -307,9 +307,9 @@ static esp_err_t protected_id_set(bool create)
     if (create) {
         uint8_t id[CANOKEY_PROFILE_ID_SIZE];
         esp_fill_random(id, sizeof(id));
-        err = nvs_set_blob(nvs, NVS_PROTECTED_ID, id, sizeof(id));
+        err = nvs_set_blob(nvs, NVS_PHONE_LOCKED_ID, id, sizeof(id));
     } else {
-        err = nvs_erase_key(nvs, NVS_PROTECTED_ID);
+        err = nvs_erase_key(nvs, NVS_PHONE_LOCKED_ID);
         if (err == ESP_ERR_NVS_NOT_FOUND) {
             err = ESP_OK;
         }
@@ -321,14 +321,14 @@ static esp_err_t protected_id_set(bool create)
     return err;
 }
 
-bool canokey_storage_protected_id(uint8_t id[CANOKEY_PROFILE_ID_SIZE])
+bool canokey_storage_phone_locked_id(uint8_t id[CANOKEY_PROFILE_ID_SIZE])
 {
     nvs_handle_t nvs;
     if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs) != ESP_OK) {
         return false;
     }
     size_t len = CANOKEY_PROFILE_ID_SIZE;
-    bool found = nvs_get_blob(nvs, NVS_PROTECTED_ID, id, &len) == ESP_OK && len == CANOKEY_PROFILE_ID_SIZE;
+    bool found = nvs_get_blob(nvs, NVS_PHONE_LOCKED_ID, id, &len) == ESP_OK && len == CANOKEY_PROFILE_ID_SIZE;
     nvs_close(nvs);
     return found;
 }
@@ -342,7 +342,7 @@ esp_err_t canokey_storage_set_secret(const uint8_t *secret, size_t len)
     memcpy(s_secret, secret, len);
     s_secret_set = true;
 
-    store_t *stores = s_stores[CANOKEY_PROFILE_PROTECTED];
+    store_t *stores = s_stores[CANOKEY_PROFILE_PHONE_LOCKED];
     /* Stores already set up must all open before a new one is set up under this secret. */
     for (int i = 0; i < STORE_COUNT; i++) {
         store_t *st = &stores[i];
@@ -356,8 +356,8 @@ esp_err_t canokey_storage_set_secret(const uint8_t *secret, size_t len)
         }
     }
     uint8_t id[CANOKEY_PROFILE_ID_SIZE];
-    if (!canokey_storage_protected_id(id)) {
-        ESP_RETURN_ON_ERROR(protected_id_set(true), TAG, "profile id");
+    if (!canokey_storage_phone_locked_id(id)) {
+        ESP_RETURN_ON_ERROR(phone_locked_id_set(true), TAG, "profile id");
     }
     for (int i = 0; i < STORE_COUNT; i++) {
         store_t *st = &stores[i];
@@ -368,11 +368,11 @@ esp_err_t canokey_storage_set_secret(const uint8_t *secret, size_t len)
             ESP_RETURN_ON_ERROR(store_set_ready(st, true), TAG, "%s: flag", st->label);
         }
     }
-    ESP_LOGI(TAG, "protected profile open");
+    ESP_LOGI(TAG, "phone-locked profile open");
     return ESP_OK;
 }
 
-/* Erases a store under a new salt. Without the secret a protected store is only erased, and set up again with it. */
+/* Erases a store under a new salt. Without the secret a phone-locked store is only erased, and set up again with it. */
 static esp_err_t store_wipe(store_t *st)
 {
     store_unmount(st);
@@ -395,9 +395,9 @@ esp_err_t canokey_storage_wipe_fido(canokey_profile_t profile)
 
 esp_err_t canokey_storage_wipe_profile(canokey_profile_t profile)
 {
-    if (profile == CANOKEY_PROFILE_PROTECTED) {
+    if (profile == CANOKEY_PROFILE_PHONE_LOCKED) {
         forget_secret();
-        ESP_RETURN_ON_ERROR(protected_id_set(false), TAG, "profile id");
+        ESP_RETURN_ON_ERROR(phone_locked_id_set(false), TAG, "profile id");
     }
     for (int i = 0; i < STORE_COUNT; i++) {
         ESP_RETURN_ON_ERROR(store_wipe(&s_stores[profile][i]), TAG, "wipe");

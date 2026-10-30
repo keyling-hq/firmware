@@ -7,14 +7,14 @@ static ui_profile_t s_reset_profile;
 
 static const char *state_text(ui_profile_t profile)
 {
-    if (profile != UI_PROFILE_PROTECTED) {
+    if (profile != UI_PROFILE_PHONE_LOCKED) {
         return "";
     }
-    switch (ui_protected_state()) {
-    case UI_PROTECTED_NEW:
+    switch (ui_phone_locked_state()) {
+    case UI_PHONE_LOCKED_NEW:
         return ": new";
-    case UI_PROTECTED_WAITING:
-        return ": locked";
+    case UI_PHONE_LOCKED_WAITING:
+        return ": waiting";
     default:
         return "";
     }
@@ -27,7 +27,7 @@ static void select_cb(lv_event_t *e)
 
 static void default_cb(lv_event_t *e)
 {
-    ui_profile_t other = ui_profile_default() == UI_PROFILE_DEFAULT ? UI_PROFILE_PROTECTED : UI_PROFILE_DEFAULT;
+    ui_profile_t other = ui_profile_default() == UI_PROFILE_MAIN ? UI_PROFILE_PHONE_LOCKED : UI_PROFILE_MAIN;
     ui_emit(UI_ACTION_DEFAULT_PROFILE, other);
 }
 
@@ -66,7 +66,7 @@ static void show_profiles(void)
             focus = item;
         }
     }
-    snprintf(text, sizeof(text), "At power-up: %s", ui_profile_name(ui_profile_default()));
+    snprintf(text, sizeof(text), "Start: %s", ui_profile_name(ui_profile_default()));
     ui_menu_add(list, text, default_cb, 0);
     for (int i = 0; i < UI_PROFILE_COUNT; i++) {
         snprintf(text, sizeof(text), "Erase %s", ui_profile_name(i));

@@ -419,10 +419,10 @@ static void proto_ota_state(bool active, uint8_t percent, void *ctx)
     ui_show_update(active, percent);
 }
 
-static const bridge_ProtectedState PROTECTED_STATES[] = {
-    [CANOKEY_PROFILE_OPEN] = bridge_ProtectedState_PROTECTED_OPEN,
-    [CANOKEY_PROFILE_NEW] = bridge_ProtectedState_PROTECTED_NEW,
-    [CANOKEY_PROFILE_WAITING] = bridge_ProtectedState_PROTECTED_WAITING,
+static const bridge_PhoneLockedState PROTECTED_STATES[] = {
+    [CANOKEY_PROFILE_OPEN] = bridge_PhoneLockedState_PHONE_LOCKED_OPEN,
+    [CANOKEY_PROFILE_NEW] = bridge_PhoneLockedState_PHONE_LOCKED_NEW,
+    [CANOKEY_PROFILE_WAITING] = bridge_PhoneLockedState_PHONE_LOCKED_WAITING,
 };
 
 static void proto_get_profiles(bridge_Profiles *out, void *ctx)
@@ -431,16 +431,16 @@ static void proto_get_profiles(bridge_Profiles *out, void *ctx)
     canokey_profiles_get(&profiles);
     out->active = (bridge_Profile)profiles.active;
     out->default_profile = (bridge_Profile)profiles.default_profile;
-    out->protected_state = PROTECTED_STATES[profiles.protected_state];
-    if (profiles.has_protected_id) {
-        memcpy(out->protected_id.bytes, profiles.protected_id, sizeof(profiles.protected_id));
-        out->protected_id.size = sizeof(profiles.protected_id);
+    out->phone_locked_state = PROTECTED_STATES[profiles.phone_locked_state];
+    if (profiles.has_phone_locked_id) {
+        memcpy(out->phone_locked_id.bytes, profiles.phone_locked_id, sizeof(profiles.phone_locked_id));
+        out->phone_locked_id.size = sizeof(profiles.phone_locked_id);
     }
 }
 
 static bool profile_valid(bridge_Profile profile)
 {
-    return profile == bridge_Profile_PROFILE_DEFAULT || profile == bridge_Profile_PROFILE_PROTECTED;
+    return profile == bridge_Profile_PROFILE_MAIN || profile == bridge_Profile_PROFILE_PHONE_LOCKED;
 }
 
 static bridge_Result proto_select_profile(const bridge_SelectProfile *in, void *ctx)
@@ -464,8 +464,8 @@ static bridge_Result proto_profile_secret(const bridge_ProfileSecret *in, void *
 #define PROFILE_RESET_CONFIRM_MS    15000
 
 static const char *const PROFILE_NAMES[] = {
-    [CANOKEY_PROFILE_DEFAULT] = "Default",
-    [CANOKEY_PROFILE_PROTECTED] = "Protected",
+    [CANOKEY_PROFILE_MAIN] = "Main",
+    [CANOKEY_PROFILE_PHONE_LOCKED] = "Phone-locked",
 };
 
 static bridge_Result proto_reset_profile(const bridge_ResetProfile *in, void *ctx)
@@ -565,11 +565,11 @@ static void canokey_event_cb(canokey_event_t event, void *ctx)
     case CANOKEY_EVENT_PROFILES: {
         canokey_profiles_t profiles;
         canokey_profiles_get(&profiles);
-        _Static_assert((int)CANOKEY_PROFILE_OPEN == (int)UI_PROTECTED_OPEN && (int)CANOKEY_PROFILE_NEW == (int)UI_PROTECTED_NEW &&
-                           (int)CANOKEY_PROFILE_WAITING == (int)UI_PROTECTED_WAITING,
-                       "protected state numbering");
+        _Static_assert((int)CANOKEY_PROFILE_OPEN == (int)UI_PHONE_LOCKED_OPEN && (int)CANOKEY_PROFILE_NEW == (int)UI_PHONE_LOCKED_NEW &&
+                           (int)CANOKEY_PROFILE_WAITING == (int)UI_PHONE_LOCKED_WAITING,
+                       "phone-locked state numbering");
         ui_set_profiles((ui_profile_t)profiles.active, (ui_profile_t)profiles.default_profile,
-                        (ui_protected_state_t)profiles.protected_state);
+                        (ui_phone_locked_state_t)profiles.phone_locked_state);
         protocol_profiles_changed();
         break;
     }
@@ -591,8 +591,8 @@ static void fido_presence_cb(bool waiting, canokey_request_t kind, const char *r
         [CANOKEY_REQUEST_PGP_DECRYPT] = UI_FIDO_PGP_DECRYPT,
         [CANOKEY_REQUEST_PGP_AUTH] = UI_FIDO_PGP_AUTH,
     };
-    _Static_assert((int)CANOKEY_PROFILE_DEFAULT == (int)UI_PROFILE_DEFAULT &&
-                       (int)CANOKEY_PROFILE_PROTECTED == (int)UI_PROFILE_PROTECTED,
+    _Static_assert((int)CANOKEY_PROFILE_MAIN == (int)UI_PROFILE_MAIN &&
+                       (int)CANOKEY_PROFILE_PHONE_LOCKED == (int)UI_PROFILE_PHONE_LOCKED,
                    "profile numbering");
     if (waiting) {
         ESP_LOGI(TAG, "fido: request %d for '%s' waits for presence", kind, rp_id);

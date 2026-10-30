@@ -278,7 +278,7 @@ void device_config_fill_serial(uint8_t *buf)
     uint8_t mac[6] = { 0 };
     esp_efuse_mac_get_default(mac);
     memcpy(buf, mac + 2, 4);
-    if (s_profile == CANOKEY_PROFILE_PROTECTED) {
+    if (s_profile == CANOKEY_PROFILE_PHONE_LOCKED) {
         buf[0] ^= 0x80;
     }
 }
@@ -492,7 +492,7 @@ static esp_err_t activate(canokey_profile_t profile)
     s_profile_open = false;
     s_reset_target = profile;
     bool open = canokey_storage_state(profile) == CANOKEY_PROFILE_OPEN;
-    s_store_profile = open ? profile : CANOKEY_PROFILE_DEFAULT;
+    s_store_profile = open ? profile : CANOKEY_PROFILE_MAIN;
     ESP_RETURN_ON_ERROR(canokey_storage_select(s_store_profile), TAG, "select");
     ESP_RETURN_ON_ERROR(install_applets(), TAG, "applets install");
     ESP_RETURN_ON_ERROR(install_dev_attestation(), TAG, "attestation");
@@ -503,13 +503,13 @@ static esp_err_t activate(canokey_profile_t profile)
 
 static canokey_profile_t default_profile_load(void)
 {
-    uint8_t profile = CANOKEY_PROFILE_DEFAULT;
+    uint8_t profile = CANOKEY_PROFILE_MAIN;
     nvs_handle_t nvs;
     if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs) == ESP_OK) {
         nvs_get_u8(nvs, NVS_DEFAULT_PROFILE, &profile);
         nvs_close(nvs);
     }
-    return profile < CANOKEY_PROFILE_COUNT ? profile : CANOKEY_PROFILE_DEFAULT;
+    return profile < CANOKEY_PROFILE_COUNT ? profile : CANOKEY_PROFILE_MAIN;
 }
 
 static esp_err_t default_profile_store(canokey_profile_t profile)
@@ -532,9 +532,9 @@ void canokey_profiles_get(canokey_profiles_t *out)
     *out = (canokey_profiles_t){
         .active = s_profile,
         .default_profile = s_default_profile,
-        .protected_state = canokey_storage_state(CANOKEY_PROFILE_PROTECTED),
+        .phone_locked_state = canokey_storage_state(CANOKEY_PROFILE_PHONE_LOCKED),
     };
-    out->has_protected_id = canokey_storage_protected_id(out->protected_id);
+    out->has_phone_locked_id = canokey_storage_phone_locked_id(out->phone_locked_id);
 }
 
 /* ---- commands from other tasks, run on the canokey task ---------------------- */
@@ -576,8 +576,8 @@ static esp_err_t run_cmd(cmd_t *cmd)
         break;
     case CMD_SECRET:
         err = canokey_storage_set_secret(cmd->secret, cmd->secret_len);
-        if (err == ESP_OK && s_profile == CANOKEY_PROFILE_PROTECTED && !s_profile_open) {
-            err = activate(CANOKEY_PROFILE_PROTECTED);
+        if (err == ESP_OK && s_profile == CANOKEY_PROFILE_PHONE_LOCKED && !s_profile_open) {
+            err = activate(CANOKEY_PROFILE_PHONE_LOCKED);
         }
         break;
     case CMD_RESET:

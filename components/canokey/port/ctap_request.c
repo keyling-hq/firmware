@@ -47,32 +47,56 @@ static void find_rp_in_map(CborValue *rp)
     copy_rp_id(&field);
 }
 
+/* Finds a request parameter by its integer key; the value refers to the parser's data. */
+static bool find_param(const uint8_t *params, size_t len, int wanted, CborParser *parser, CborValue *value)
+{
+    CborValue it;
+    if (cbor_parser_init(params, len, 0, parser, &it) != CborNoError || !cbor_value_is_map(&it) ||
+        cbor_value_enter_container(&it, value) != CborNoError) {
+        return false;
+    }
+    while (!cbor_value_at_end(value)) {
+        int key;
+        if (!cbor_value_is_integer(value) || cbor_value_get_int(value, &key) != CborNoError ||
+            cbor_value_advance(value) != CborNoError) {
+            return false;
+        }
+        if (key == wanted) {
+            return true;
+        }
+        if (cbor_value_advance(value) != CborNoError) {
+            return false;
+        }
+    }
+    return false;
+}
+
 static void parse_rp(const uint8_t *params, size_t len, int rp_key, bool rp_is_map)
 {
     CborParser parser;
-    CborValue it, map;
-    if (cbor_parser_init(params, len, 0, &parser, &it) != CborNoError || !cbor_value_is_map(&it) ||
-        cbor_value_enter_container(&it, &map) != CborNoError) {
+    CborValue value;
+    if (!find_param(params, len, rp_key, &parser, &value)) {
         return;
     }
-    while (!cbor_value_at_end(&map)) {
-        int key;
-        if (!cbor_value_is_integer(&map) || cbor_value_get_int(&map, &key) != CborNoError ||
-            cbor_value_advance(&map) != CborNoError) {
-            return;
-        }
-        if (key == rp_key) {
-            if (rp_is_map) {
-                find_rp_in_map(&map);
-            } else {
-                copy_rp_id(&map);
-            }
-            return;
-        }
-        if (cbor_value_advance(&map) != CborNoError) {
-            return;
-        }
+    if (rp_is_map) {
+        find_rp_in_map(&value);
+    } else {
+        copy_rp_id(&value);
     }
+}
+
+/*
+ * A makeCredential with an empty pinUvAuthParam only waits for a touch and then fails: hosts use
+ * it to let the user pick a key, e.g. before Windows resets one.
+ */
+static bool is_touch_probe(const uint8_t *req, size_t len)
+{
+    CborParser parser;
+    CborValue value;
+    size_t param_len;
+    return req[0] == CTAP_MAKE_CREDENTIAL && find_param(req + 1, len - 1, MC_REQ_PIN_UV_AUTH_PARAM, &parser, &value) &&
+           cbor_value_is_byte_string(&value) && cbor_value_get_string_length(&value, &param_len) == CborNoError &&
+           param_len == 0;
 }
 
 static void note_request(const uint8_t *req, size_t len)
@@ -117,7 +141,7 @@ int __real_ctap_process_cbor_stream_source_with_src(const ctap_req_src_t *req_sr
 static bool refused(const uint8_t *req, size_t len)
 {
     if (!canokey_port_locked() || len < 1 || req[0] == CTAP_GET_INFO || req[0] == CTAP_RESET ||
-        req[0] == CTAP_SELECTION || req[0] == REFUSED_COMMAND) {
+        req[0] == CTAP_SELECTION || req[0] == REFUSED_COMMAND || is_touch_probe(req, len)) {
         return false;
     }
     canokey_port_report_locked();
