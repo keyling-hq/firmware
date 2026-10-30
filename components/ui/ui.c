@@ -55,7 +55,7 @@ static bool s_fido_locked;
 static lv_timer_t *s_fido_result_timer;
 static ui_profile_t s_profile_active;
 static ui_profile_t s_profile_default;
-static ui_phone_locked_state_t s_phone_locked_state = UI_PHONE_LOCKED_NEW;
+static ui_phantom_state_t s_phantom_state = UI_PHANTOM_NEW;
 static bool s_pairing;
 static uint32_t s_pairing_passkey;
 static char s_pairing_qr[UI_PAIRING_QR_MAX];
@@ -339,7 +339,7 @@ static const char *ble_state_text(void)
 
 static bool profile_locked(void)
 {
-    return s_profile_active == UI_PROFILE_PHONE_LOCKED && s_phone_locked_state != UI_PHONE_LOCKED_OPEN;
+    return s_profile_active == UI_PROFILE_PHANTOM && s_phantom_state != UI_PHANTOM_OPEN;
 }
 
 static void update_status(void)
@@ -501,9 +501,9 @@ static void fido_reset_default(void)
     ui_emit(UI_ACTION_FIDO_RESET_CONFIRM, UI_PROFILE_MAIN);
 }
 
-static void fido_reset_phone_locked(void)
+static void fido_reset_phantom(void)
 {
-    ui_emit(UI_ACTION_FIDO_RESET_CONFIRM, UI_PROFILE_PHONE_LOCKED);
+    ui_emit(UI_ACTION_FIDO_RESET_CONFIRM, UI_PROFILE_PHANTOM);
 }
 
 /* A security key reset erases one profile's credentials: a hold button per profile picks it. */
@@ -511,7 +511,7 @@ static void show_fido_reset(void)
 {
     static const ui_screen_fn_t confirm[UI_PROFILE_COUNT] = {
         [UI_PROFILE_MAIN] = fido_reset_default,
-        [UI_PROFILE_PHONE_LOCKED] = fido_reset_phone_locked,
+        [UI_PROFILE_PHANTOM] = fido_reset_phantom,
     };
     lv_obj_t *list = ui_menu_begin("Erase security key?", NULL);
     lv_obj_t *focus = NULL;
@@ -847,7 +847,7 @@ void ui_show_profile_locked(void)
 
 const char *ui_profile_name(ui_profile_t profile)
 {
-    return profile == UI_PROFILE_PHONE_LOCKED ? "Phone-locked" : "Main";
+    return profile == UI_PROFILE_PHANTOM ? "Phantom" : "Main";
 }
 
 ui_profile_t ui_profile_active(void)
@@ -860,19 +860,19 @@ ui_profile_t ui_profile_default(void)
     return s_profile_default;
 }
 
-ui_phone_locked_state_t ui_phone_locked_state(void)
+ui_phantom_state_t ui_phantom_state(void)
 {
-    return s_phone_locked_state;
+    return s_phantom_state;
 }
 
-void ui_set_profiles(ui_profile_t active, ui_profile_t default_profile, ui_phone_locked_state_t phone_locked_state)
+void ui_set_profiles(ui_profile_t active, ui_profile_t default_profile, ui_phantom_state_t phantom_state)
 {
     if (!lvgl_port_lock(PROMPT_LOCK_MS)) {
         return;
     }
     s_profile_active = active;
     s_profile_default = default_profile;
-    s_phone_locked_state = phone_locked_state;
+    s_phantom_state = phantom_state;
     update_status();
     if (s_app && s_app->refresh && s_overlay == OVERLAY_NONE) {
         navigate(s_app->refresh);

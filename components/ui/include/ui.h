@@ -28,15 +28,15 @@ typedef enum {
 
 typedef enum {
     UI_PROFILE_MAIN,
-    UI_PROFILE_PHONE_LOCKED,
+    UI_PROFILE_PHANTOM,
     UI_PROFILE_COUNT,
 } ui_profile_t;
 
 typedef enum {
-    UI_PHONE_LOCKED_OPEN,
-    UI_PHONE_LOCKED_NEW,
-    UI_PHONE_LOCKED_WAITING,
-} ui_phone_locked_state_t;
+    UI_PHANTOM_OPEN,
+    UI_PHANTOM_NEW,
+    UI_PHANTOM_WAITING,
+} ui_phantom_state_t;
 
 typedef enum {
     UI_BLE_ADVERTISING,         /* bonded phone not connected */
@@ -78,7 +78,7 @@ void ui_show_fido_request(ui_fido_request_t kind, const char *rp_id);
 void ui_show_fido_done(bool approved);
 
 /** The security key profiles: the active one is named on the home screen. */
-void ui_set_profiles(ui_profile_t active, ui_profile_t default_profile, ui_phone_locked_state_t phone_locked_state);
+void ui_set_profiles(ui_profile_t active, ui_profile_t default_profile, ui_phantom_state_t phantom_state);
 
 /** A request was refused because the active profile is locked: says so briefly. */
 void ui_show_profile_locked(void);

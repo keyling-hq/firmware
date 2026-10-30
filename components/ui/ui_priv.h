@@ -40,7 +40,7 @@ const char *ui_fido_status(void);
 const char *ui_profile_name(ui_profile_t profile);
 ui_profile_t ui_profile_active(void);
 ui_profile_t ui_profile_default(void);
-ui_phone_locked_state_t ui_phone_locked_state(void);
+ui_phantom_state_t ui_phantom_state(void);
 
 /** The phone is typing: apps must not produce host input meanwhile. */
 bool ui_host_busy(void);

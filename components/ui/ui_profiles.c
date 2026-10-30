@@ -10,18 +10,18 @@ static ui_screen_fn_t s_screen = show_profiles;
 
 static ui_profile_t other_profile(ui_profile_t profile)
 {
-    return profile == UI_PROFILE_MAIN ? UI_PROFILE_PHONE_LOCKED : UI_PROFILE_MAIN;
+    return profile == UI_PROFILE_MAIN ? UI_PROFILE_PHANTOM : UI_PROFILE_MAIN;
 }
 
 static const char *state_text(ui_profile_t profile)
 {
-    if (profile != UI_PROFILE_PHONE_LOCKED) {
+    if (profile != UI_PROFILE_PHANTOM) {
         return "";
     }
-    switch (ui_phone_locked_state()) {
-    case UI_PHONE_LOCKED_NEW:
+    switch (ui_phantom_state()) {
+    case UI_PHANTOM_NEW:
         return ": new";
-    case UI_PHONE_LOCKED_WAITING:
+    case UI_PHANTOM_WAITING:
         return ": waiting";
     default:
         return "";

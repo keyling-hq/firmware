@@ -17,7 +17,7 @@ static const char *TAG = "canokey_fs";
 #define FS_LOOKAHEAD_SIZE   32
 
 #define NVS_NAMESPACE       "canokey"
-#define NVS_PHONE_LOCKED_ID    "pid"
+#define NVS_PHANTOM_ID    "pid"
 #define STORAGE_SALT_SIZE   16
 #define XTS_UNIT            16
 
@@ -28,7 +28,7 @@ enum { STORE_FIDO, STORE_PGP, STORE_COUNT };
 typedef struct {
     const char *label;      /* partition and keystore label */
     const char *salt_name;  /* NVS key of the store's salt */
-    const char *ready_name; /* phone-locked stores: NVS flag, set once formatted under a secret */
+    const char *ready_name; /* phantom stores: NVS flag, set once formatted under a secret */
     const esp_partition_t *part;
     bool mounted;
     lfs_t lfs;
@@ -45,7 +45,7 @@ static store_t s_stores[CANOKEY_PROFILE_COUNT][STORE_COUNT] = {
         [STORE_FIDO] = { .label = "fido", .salt_name = "fssalt" },
         [STORE_PGP] = { .label = "openpgp", .salt_name = "pgpsalt" },
     },
-    [CANOKEY_PROFILE_PHONE_LOCKED] = {
+    [CANOKEY_PROFILE_PHANTOM] = {
         [STORE_FIDO] = { .label = "fido_p", .salt_name = "fpsalt", .ready_name = "fpready" },
         [STORE_PGP] = { .label = "openpgp_p", .salt_name = "ppsalt", .ready_name = "ppready" },
     },
@@ -203,7 +203,7 @@ static void store_unmount(store_t *st)
 }
 
 /*
- * Mounts with the current key. A store that doesn't mount is formatted only if allowed: phone-locked
+ * Mounts with the current key. A store that doesn't mount is formatted only if allowed: phantom
  * stores never are, since a wrong secret must not destroy them. littlefs's format rewrites only
  * its superblocks, so the partition is erased first and no old block survives.
  */
@@ -299,7 +299,7 @@ static void forget_secret(void)
     s_secret_set = false;
 }
 
-static esp_err_t phone_locked_id_set(bool create)
+static esp_err_t phantom_id_set(bool create)
 {
     nvs_handle_t nvs;
     ESP_RETURN_ON_ERROR(nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs), TAG, "nvs");
@@ -307,9 +307,9 @@ static esp_err_t phone_locked_id_set(bool create)
     if (create) {
         uint8_t id[CANOKEY_PROFILE_ID_SIZE];
         esp_fill_random(id, sizeof(id));
-        err = nvs_set_blob(nvs, NVS_PHONE_LOCKED_ID, id, sizeof(id));
+        err = nvs_set_blob(nvs, NVS_PHANTOM_ID, id, sizeof(id));
     } else {
-        err = nvs_erase_key(nvs, NVS_PHONE_LOCKED_ID);
+        err = nvs_erase_key(nvs, NVS_PHANTOM_ID);
         if (err == ESP_ERR_NVS_NOT_FOUND) {
             err = ESP_OK;
         }
@@ -321,14 +321,14 @@ static esp_err_t phone_locked_id_set(bool create)
     return err;
 }
 
-bool canokey_storage_phone_locked_id(uint8_t id[CANOKEY_PROFILE_ID_SIZE])
+bool canokey_storage_phantom_id(uint8_t id[CANOKEY_PROFILE_ID_SIZE])
 {
     nvs_handle_t nvs;
     if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs) != ESP_OK) {
         return false;
     }
     size_t len = CANOKEY_PROFILE_ID_SIZE;
-    bool found = nvs_get_blob(nvs, NVS_PHONE_LOCKED_ID, id, &len) == ESP_OK && len == CANOKEY_PROFILE_ID_SIZE;
+    bool found = nvs_get_blob(nvs, NVS_PHANTOM_ID, id, &len) == ESP_OK && len == CANOKEY_PROFILE_ID_SIZE;
     nvs_close(nvs);
     return found;
 }
@@ -342,7 +342,7 @@ esp_err_t canokey_storage_set_secret(const uint8_t *secret, size_t len)
     memcpy(s_secret, secret, len);
     s_secret_set = true;
 
-    store_t *stores = s_stores[CANOKEY_PROFILE_PHONE_LOCKED];
+    store_t *stores = s_stores[CANOKEY_PROFILE_PHANTOM];
     /* Stores already set up must all open before a new one is set up under this secret. */
     for (int i = 0; i < STORE_COUNT; i++) {
         store_t *st = &stores[i];
@@ -356,8 +356,8 @@ esp_err_t canokey_storage_set_secret(const uint8_t *secret, size_t len)
         }
     }
     uint8_t id[CANOKEY_PROFILE_ID_SIZE];
-    if (!canokey_storage_phone_locked_id(id)) {
-        ESP_RETURN_ON_ERROR(phone_locked_id_set(true), TAG, "profile id");
+    if (!canokey_storage_phantom_id(id)) {
+        ESP_RETURN_ON_ERROR(phantom_id_set(true), TAG, "profile id");
     }
     for (int i = 0; i < STORE_COUNT; i++) {
         store_t *st = &stores[i];
@@ -368,11 +368,11 @@ esp_err_t canokey_storage_set_secret(const uint8_t *secret, size_t len)
             ESP_RETURN_ON_ERROR(store_set_ready(st, true), TAG, "%s: flag", st->label);
         }
     }
-    ESP_LOGI(TAG, "phone-locked profile open");
+    ESP_LOGI(TAG, "phantom profile open");
     return ESP_OK;
 }
 
-/* Erases a store under a new salt. Without the secret a phone-locked store is only erased, and set up again with it. */
+/* Erases a store under a new salt. Without the secret a phantom store is only erased, and set up again with it. */
 static esp_err_t store_wipe(store_t *st)
 {
     store_unmount(st);
@@ -395,9 +395,9 @@ esp_err_t canokey_storage_wipe_fido(canokey_profile_t profile)
 
 esp_err_t canokey_storage_wipe_profile(canokey_profile_t profile)
 {
-    if (profile == CANOKEY_PROFILE_PHONE_LOCKED) {
+    if (profile == CANOKEY_PROFILE_PHANTOM) {
         forget_secret();
-        ESP_RETURN_ON_ERROR(phone_locked_id_set(false), TAG, "profile id");
+        ESP_RETURN_ON_ERROR(phantom_id_set(false), TAG, "profile id");
     }
     for (int i = 0; i < STORE_COUNT; i++) {
         ESP_RETURN_ON_ERROR(store_wipe(&s_stores[profile][i]), TAG, "wipe");

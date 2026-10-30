@@ -278,7 +278,7 @@ void device_config_fill_serial(uint8_t *buf)
     uint8_t mac[6] = { 0 };
     esp_efuse_mac_get_default(mac);
     memcpy(buf, mac + 2, 4);
-    if (s_profile == CANOKEY_PROFILE_PHONE_LOCKED) {
+    if (s_profile == CANOKEY_PROFILE_PHANTOM) {
         buf[0] ^= 0x80;
     }
 }
@@ -532,9 +532,9 @@ void canokey_profiles_get(canokey_profiles_t *out)
     *out = (canokey_profiles_t){
         .active = s_profile,
         .default_profile = s_default_profile,
-        .phone_locked_state = canokey_storage_state(CANOKEY_PROFILE_PHONE_LOCKED),
+        .phantom_state = canokey_storage_state(CANOKEY_PROFILE_PHANTOM),
     };
-    out->has_phone_locked_id = canokey_storage_phone_locked_id(out->phone_locked_id);
+    out->has_phantom_id = canokey_storage_phantom_id(out->phantom_id);
 }
 
 /* ---- commands from other tasks, run on the canokey task ---------------------- */
@@ -576,8 +576,8 @@ static esp_err_t run_cmd(cmd_t *cmd)
         break;
     case CMD_SECRET:
         err = canokey_storage_set_secret(cmd->secret, cmd->secret_len);
-        if (err == ESP_OK && s_profile == CANOKEY_PROFILE_PHONE_LOCKED && !s_profile_open) {
-            err = activate(CANOKEY_PROFILE_PHONE_LOCKED);
+        if (err == ESP_OK && s_profile == CANOKEY_PROFILE_PHANTOM && !s_profile_open) {
+            err = activate(CANOKEY_PROFILE_PHANTOM);
         }
         break;
     case CMD_RESET:

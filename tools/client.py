@@ -192,7 +192,7 @@ class Bridge:
         elif kind == "profiles":
             p = event.profiles
             print(f"profiles: active={pb.Profile.Name(p.active)} default={pb.Profile.Name(p.default_profile)} "
-                  f"phone_locked={pb.PhoneLockedState.Name(p.phone_locked_state)} id={p.phone_locked_id.hex() or '-'}")
+                  f"phantom={pb.PhantomState.Name(p.phantom_state)} id={p.phantom_id.hex() or '-'}")
 
     async def _wait_credits(self):
         self.credits_changed.clear()
@@ -353,9 +353,9 @@ async def execute(bridge, args):
                 await asyncio.sleep(1)
 
     elif args.command == "profile":
-        profile = {"main": pb.PROFILE_MAIN, "phone-locked": pb.PROFILE_PHONE_LOCKED}.get(args.profile or "main")
+        profile = {"main": pb.PROFILE_MAIN, "phantom": pb.PROFILE_PHANTOM}.get(args.profile or "main")
         if profile is None and args.action != "secret":
-            raise CommandError("profile: main or phone-locked")
+            raise CommandError("profile: main or phantom")
         if args.action == "show":
             await bridge.request(pb.Request(get_profiles=pb.GetProfiles()))
         elif args.action in ("use", "make-default"):
@@ -364,7 +364,7 @@ async def execute(bridge, args):
         elif args.action == "secret":
             secret = bytes.fromhex(args.profile or "")
             if await bridge.request(pb.Request(profile_secret=pb.ProfileSecret(secret=secret))) == pb.RESULT_OK:
-                print("phone-locked profile open")
+                print("phantom profile open")
         elif args.action == "reset":
             print("confirm on the dongle...")
             if await bridge.request(pb.Request(reset_profile=pb.ResetProfile(profile=profile))) == pb.RESULT_OK:
@@ -433,10 +433,10 @@ def add_commands(sub):
     p = sub.add_parser("ota", help="update the firmware, e.g. .pio/build/hid/firmware.bin")
     p.add_argument("image")
     sub.add_parser("device", help="show device information")
-    p = sub.add_parser("profile", help="security key profiles: show, use/make-default/reset main|phone-locked, "
+    p = sub.add_parser("profile", help="security key profiles: show, use/make-default/reset main|phantom, "
                                        "secret <64 hex digits>")
     p.add_argument("action", choices=["show", "use", "make-default", "reset", "secret"])
-    p.add_argument("profile", nargs="?", help="main or phone-locked; the secret's hex digits for secret")
+    p.add_argument("profile", nargs="?", help="main or phantom; the secret's hex digits for secret")
     p = sub.add_parser("logs", help="print the dongle's recent log output")
     p.add_argument("-f", "--follow", action="store_true", help="keep printing new output")
     sub.add_parser("ping")

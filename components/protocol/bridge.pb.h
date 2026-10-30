@@ -19,15 +19,15 @@ typedef enum _bridge_Result {
 
 typedef enum _bridge_Profile {
     bridge_Profile_PROFILE_MAIN = 0,
-    bridge_Profile_PROFILE_PHONE_LOCKED = 1
+    bridge_Profile_PROFILE_PHANTOM = 1
 } bridge_Profile;
 
-typedef enum _bridge_PhoneLockedState {
-    bridge_PhoneLockedState_PHONE_LOCKED_UNKNOWN = 0, /* never read a missing value as PHONE_LOCKED_NEW */
-    bridge_PhoneLockedState_PHONE_LOCKED_NEW = 1, /* not set up: the next ProfileSecret sets it up */
-    bridge_PhoneLockedState_PHONE_LOCKED_WAITING = 2, /* set up, waiting for its secret */
-    bridge_PhoneLockedState_PHONE_LOCKED_OPEN = 3
-} bridge_PhoneLockedState;
+typedef enum _bridge_PhantomState {
+    bridge_PhantomState_PHANTOM_UNKNOWN = 0, /* never read a missing value as PHANTOM_NEW */
+    bridge_PhantomState_PHANTOM_NEW = 1, /* not set up: the next ProfileSecret sets it up */
+    bridge_PhantomState_PHANTOM_WAITING = 2, /* set up, waiting for its secret */
+    bridge_PhantomState_PHANTOM_OPEN = 3
+} bridge_PhantomState;
 
 /* Struct definitions */
 /* Typed with the dongle's current layout. May be split anywhere, even inside a UTF-8 sequence. */
@@ -83,12 +83,12 @@ typedef struct _bridge_GetLogs {
     uint32_t since;
 } bridge_GetLogs;
 
-/* Security key profiles: Main and Phone-locked. Each has its own FIDO credentials and OpenPGP card,
- encrypted with a key held by the dongle. The phone-locked profile's key also depends on a 32-byte
- secret the phone generates and keeps; the dongle holds the secret in RAM only, so it is needed
- again after every power-up. While the active profile is phone-locked and its secret hasn't
- arrived, the OpenPGP card is out of the reader and FIDO requests fail (except what a security
- key reset needs).
+/* Security key profiles: Main and Phantom. Each has its own FIDO credentials and OpenPGP card,
+ encrypted with a key held by the dongle. Phantom's key also depends on a 32-byte secret the
+ phone generates and keeps: without it Phantom's contents are indistinguishable from random data.
+ The dongle holds the secret in RAM only, so it is needed again after every power-up. While
+ Phantom is active and its secret hasn't arrived, the OpenPGP card is out of the reader and FIDO
+ requests fail (except what a security key reset needs).
 
  Replied to with a Profiles event. */
 typedef struct _bridge_GetProfiles {
@@ -102,7 +102,7 @@ typedef struct _bridge_SelectProfile {
 } bridge_SelectProfile;
 
 typedef PB_BYTES_ARRAY_T(32) bridge_ProfileSecret_secret_t;
-/* Opens the phone-locked profile; in state PHONE_LOCKED_NEW, sets it up with this secret. The Ack is
+/* Opens the phantom profile; in state PHANTOM_NEW, sets it up with this secret. The Ack is
  RESULT_OK once open, RESULT_FAILED if the secret doesn't open it (nothing is changed) and
  RESULT_INVALID if it isn't 32 bytes. There is no way to change the secret: reset the profile and
  set it up again. */
@@ -110,8 +110,8 @@ typedef struct _bridge_ProfileSecret {
     bridge_ProfileSecret_secret_t secret;
 } bridge_ProfileSecret;
 
-/* Erases the profile's FIDO credentials and OpenPGP card; the phone-locked profile returns to
- PHONE_LOCKED_NEW. The user confirms on the dongle first, so the Ack can take as long as that:
+/* Erases the profile's FIDO credentials and OpenPGP card; the phantom profile returns to
+ PHANTOM_NEW. The user confirms on the dongle first, so the Ack can take as long as that:
  RESULT_ABORTED if declined or not confirmed in time. */
 typedef struct _bridge_ResetProfile {
     bridge_Profile profile;
@@ -285,15 +285,15 @@ typedef struct _bridge_Logs {
     uint32_t end; /* position after the newest byte logged so far */
 } bridge_Logs;
 
-typedef PB_BYTES_ARRAY_T(16) bridge_Profiles_phone_locked_id_t;
+typedef PB_BYTES_ARRAY_T(16) bridge_Profiles_phantom_id_t;
 /* Replies to GetProfiles and SelectProfile, and is also sent whenever any of it changes. */
 typedef struct _bridge_Profiles {
     bridge_Profile active;
     bridge_Profile default_profile; /* active after power-up */
-    bridge_PhoneLockedState phone_locked_state;
-    /* Random, made when the phone-locked profile is set up and replaced when it is reset; present
+    bridge_PhantomState phantom_state;
+    /* Random, made when the phantom profile is set up and replaced when it is reset; present
  while it is set up. Not secret: it tells the phone which of its secrets belongs here. */
-    bridge_Profiles_phone_locked_id_t phone_locked_id;
+    bridge_Profiles_phantom_id_t phantom_id;
 } bridge_Profiles;
 
 typedef struct _bridge_Event {
@@ -321,12 +321,12 @@ extern "C" {
 #define _bridge_Result_ARRAYSIZE ((bridge_Result)(bridge_Result_RESULT_ABORTED+1))
 
 #define _bridge_Profile_MIN bridge_Profile_PROFILE_MAIN
-#define _bridge_Profile_MAX bridge_Profile_PROFILE_PHONE_LOCKED
-#define _bridge_Profile_ARRAYSIZE ((bridge_Profile)(bridge_Profile_PROFILE_PHONE_LOCKED+1))
+#define _bridge_Profile_MAX bridge_Profile_PROFILE_PHANTOM
+#define _bridge_Profile_ARRAYSIZE ((bridge_Profile)(bridge_Profile_PROFILE_PHANTOM+1))
 
-#define _bridge_PhoneLockedState_MIN bridge_PhoneLockedState_PHONE_LOCKED_UNKNOWN
-#define _bridge_PhoneLockedState_MAX bridge_PhoneLockedState_PHONE_LOCKED_OPEN
-#define _bridge_PhoneLockedState_ARRAYSIZE ((bridge_PhoneLockedState)(bridge_PhoneLockedState_PHONE_LOCKED_OPEN+1))
+#define _bridge_PhantomState_MIN bridge_PhantomState_PHANTOM_UNKNOWN
+#define _bridge_PhantomState_MAX bridge_PhantomState_PHANTOM_OPEN
+#define _bridge_PhantomState_ARRAYSIZE ((bridge_PhantomState)(bridge_PhantomState_PHANTOM_OPEN+1))
 
 
 
@@ -363,7 +363,7 @@ extern "C" {
 
 #define bridge_Profiles_active_ENUMTYPE bridge_Profile
 #define bridge_Profiles_default_profile_ENUMTYPE bridge_Profile
-#define bridge_Profiles_phone_locked_state_ENUMTYPE bridge_PhoneLockedState
+#define bridge_Profiles_phantom_state_ENUMTYPE bridge_PhantomState
 
 
 /* Initializer values for message structs */
@@ -397,7 +397,7 @@ extern "C" {
 #define bridge_SecurityKey_init_default          {""}
 #define bridge_Security_init_default             {false, 0, false, "", false, "", false, 0, false, {0, {0}}, false, 0, false, ""}
 #define bridge_Logs_init_default                 {0, {0, {0}}, 0, 0}
-#define bridge_Profiles_init_default             {_bridge_Profile_MIN, _bridge_Profile_MIN, _bridge_PhoneLockedState_MIN, {0, {0}}}
+#define bridge_Profiles_init_default             {_bridge_Profile_MIN, _bridge_Profile_MIN, _bridge_PhantomState_MIN, {0, {0}}}
 #define bridge_Request_init_zero                 {0, 0, {bridge_Text_init_zero}}
 #define bridge_Text_init_zero                    {""}
 #define bridge_Strokes_init_zero                 {{0, {0}}}
@@ -428,7 +428,7 @@ extern "C" {
 #define bridge_SecurityKey_init_zero             {""}
 #define bridge_Security_init_zero                {false, 0, false, "", false, "", false, 0, false, {0, {0}}, false, 0, false, ""}
 #define bridge_Logs_init_zero                    {0, {0, {0}}, 0, 0}
-#define bridge_Profiles_init_zero                {_bridge_Profile_MIN, _bridge_Profile_MIN, _bridge_PhoneLockedState_MIN, {0, {0}}}
+#define bridge_Profiles_init_zero                {_bridge_Profile_MIN, _bridge_Profile_MIN, _bridge_PhantomState_MIN, {0, {0}}}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define bridge_Text_text_tag                     1
@@ -510,8 +510,8 @@ extern "C" {
 #define bridge_Logs_end_tag                      4
 #define bridge_Profiles_active_tag               1
 #define bridge_Profiles_default_profile_tag      2
-#define bridge_Profiles_phone_locked_state_tag   3
-#define bridge_Profiles_phone_locked_id_tag      4
+#define bridge_Profiles_phantom_state_tag        3
+#define bridge_Profiles_phantom_id_tag           4
 #define bridge_Event_hello_tag                   1
 #define bridge_Event_credits_tag                 2
 #define bridge_Event_ack_tag                     3
@@ -766,8 +766,8 @@ X(a, STATIC,   SINGULAR, UINT32,   end,               4)
 #define bridge_Profiles_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UENUM,    active,            1) \
 X(a, STATIC,   SINGULAR, UENUM,    default_profile,   2) \
-X(a, STATIC,   SINGULAR, UENUM,    phone_locked_state,   3) \
-X(a, STATIC,   SINGULAR, BYTES,    phone_locked_id,   4)
+X(a, STATIC,   SINGULAR, UENUM,    phantom_state,     3) \
+X(a, STATIC,   SINGULAR, BYTES,    phantom_id,        4)
 #define bridge_Profiles_CALLBACK NULL
 #define bridge_Profiles_DEFAULT NULL
 

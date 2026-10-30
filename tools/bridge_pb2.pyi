@@ -17,24 +17,24 @@ class Result(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
 class Profile(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     PROFILE_MAIN: _ClassVar[Profile]
-    PROFILE_PHONE_LOCKED: _ClassVar[Profile]
+    PROFILE_PHANTOM: _ClassVar[Profile]
 
-class PhoneLockedState(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+class PhantomState(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
-    PHONE_LOCKED_UNKNOWN: _ClassVar[PhoneLockedState]
-    PHONE_LOCKED_NEW: _ClassVar[PhoneLockedState]
-    PHONE_LOCKED_WAITING: _ClassVar[PhoneLockedState]
-    PHONE_LOCKED_OPEN: _ClassVar[PhoneLockedState]
+    PHANTOM_UNKNOWN: _ClassVar[PhantomState]
+    PHANTOM_NEW: _ClassVar[PhantomState]
+    PHANTOM_WAITING: _ClassVar[PhantomState]
+    PHANTOM_OPEN: _ClassVar[PhantomState]
 RESULT_OK: Result
 RESULT_INVALID: Result
 RESULT_FAILED: Result
 RESULT_ABORTED: Result
 PROFILE_MAIN: Profile
-PROFILE_PHONE_LOCKED: Profile
-PHONE_LOCKED_UNKNOWN: PhoneLockedState
-PHONE_LOCKED_NEW: PhoneLockedState
-PHONE_LOCKED_WAITING: PhoneLockedState
-PHONE_LOCKED_OPEN: PhoneLockedState
+PROFILE_PHANTOM: Profile
+PHANTOM_UNKNOWN: PhantomState
+PHANTOM_NEW: PhantomState
+PHANTOM_WAITING: PhantomState
+PHANTOM_OPEN: PhantomState
 
 class Request(_message.Message):
     __slots__ = ("id", "text", "key_combo", "consumer", "keyboard_report", "strokes", "ping", "get_config", "set_config", "get_device_info", "get_logs", "get_profiles", "select_profile", "profile_secret", "reset_profile", "ota_begin", "ota_data", "ota_end", "ota_abort")
@@ -327,13 +327,13 @@ class Logs(_message.Message):
     def __init__(self, start: _Optional[int] = ..., data: _Optional[bytes] = ..., next: _Optional[int] = ..., end: _Optional[int] = ...) -> None: ...
 
 class Profiles(_message.Message):
-    __slots__ = ("active", "default_profile", "phone_locked_state", "phone_locked_id")
+    __slots__ = ("active", "default_profile", "phantom_state", "phantom_id")
     ACTIVE_FIELD_NUMBER: _ClassVar[int]
     DEFAULT_PROFILE_FIELD_NUMBER: _ClassVar[int]
-    PHONE_LOCKED_STATE_FIELD_NUMBER: _ClassVar[int]
-    PHONE_LOCKED_ID_FIELD_NUMBER: _ClassVar[int]
+    PHANTOM_STATE_FIELD_NUMBER: _ClassVar[int]
+    PHANTOM_ID_FIELD_NUMBER: _ClassVar[int]
     active: Profile
     default_profile: Profile
-    phone_locked_state: PhoneLockedState
-    phone_locked_id: bytes
-    def __init__(self, active: _Optional[_Union[Profile, str]] = ..., default_profile: _Optional[_Union[Profile, str]] = ..., phone_locked_state: _Optional[_Union[PhoneLockedState, str]] = ..., phone_locked_id: _Optional[bytes] = ...) -> None: ...
+    phantom_state: PhantomState
+    phantom_id: bytes
+    def __init__(self, active: _Optional[_Union[Profile, str]] = ..., default_profile: _Optional[_Union[Profile, str]] = ..., phantom_state: _Optional[_Union[PhantomState, str]] = ..., phantom_id: _Optional[bytes] = ...) -> None: ...

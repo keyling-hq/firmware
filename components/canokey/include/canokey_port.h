@@ -24,14 +24,14 @@ typedef enum {
 
 typedef enum {
     CANOKEY_PROFILE_MAIN,
-    CANOKEY_PROFILE_PHONE_LOCKED,      /* keys also depend on a secret from the phone */
+    CANOKEY_PROFILE_PHANTOM,      /* keys also depend on a secret from the phone */
     CANOKEY_PROFILE_COUNT,
 } canokey_profile_t;
 
 typedef enum {
     CANOKEY_PROFILE_OPEN,
-    CANOKEY_PROFILE_NEW,            /* phone-locked, never set up: the first secret sets it up */
-    CANOKEY_PROFILE_WAITING,        /* phone-locked, waiting for its secret */
+    CANOKEY_PROFILE_NEW,            /* phantom, never set up: the first secret sets it up */
+    CANOKEY_PROFILE_WAITING,        /* phantom, waiting for its secret */
 } canokey_profile_state_t;
 
 #define CANOKEY_SECRET_SIZE     32
@@ -59,9 +59,9 @@ esp_err_t canokey_start(canokey_presence_cb_t presence_cb, canokey_event_cb_t ev
 typedef struct {
     canokey_profile_t active;
     canokey_profile_t default_profile;          /* active after power-up */
-    canokey_profile_state_t phone_locked_state;
-    bool has_phone_locked_id;
-    uint8_t phone_locked_id[CANOKEY_PROFILE_ID_SIZE];  /* made when the phone-locked profile is set up */
+    canokey_profile_state_t phantom_state;
+    bool has_phantom_id;
+    uint8_t phantom_id[CANOKEY_PROFILE_ID_SIZE];  /* made when the phantom profile is set up */
 } canokey_profiles_t;
 
 /** Callable from any task. */
@@ -76,7 +76,7 @@ void canokey_profiles_get(canokey_profiles_t *out);
 esp_err_t canokey_select_profile(canokey_profile_t profile, bool make_default, bool wait);
 
 /**
- * Opens the phone-locked profile with the phone's secret, or sets it up while it is new. Waits.
+ * Opens the phantom profile with the phone's secret, or sets it up while it is new. Waits.
  * ESP_ERR_INVALID_ARG: the secret doesn't open it. ESP_ERR_INVALID_SIZE: not CANOKEY_SECRET_SIZE.
  */
 esp_err_t canokey_set_secret(const uint8_t *secret, size_t len);
