@@ -104,8 +104,9 @@ typedef struct _bridge_SelectProfile {
 typedef PB_BYTES_ARRAY_T(32) bridge_ProfileSecret_secret_t;
 /* Opens the phantom profile; in state PHANTOM_NEW, sets it up with this secret. The Ack is
  RESULT_OK once open, RESULT_FAILED if the secret doesn't open it (nothing is changed) and
- RESULT_INVALID if it isn't 32 bytes. There is no way to change the secret: reset the profile and
- set it up again. */
+ RESULT_INVALID if it isn't 32 bytes. While Phantom is already open, it checks the secret instead:
+ RESULT_OK if it is the one Phantom was opened with, RESULT_FAILED if not, nothing changed either
+ way. There is no way to change the secret: reset the profile and set it up again. */
 typedef struct _bridge_ProfileSecret {
     bridge_ProfileSecret_secret_t secret;
 } bridge_ProfileSecret;
@@ -286,7 +287,9 @@ typedef struct _bridge_Logs {
 } bridge_Logs;
 
 typedef PB_BYTES_ARRAY_T(16) bridge_Profiles_phantom_id_t;
-/* Replies to GetProfiles and SelectProfile, and is also sent whenever any of it changes. */
+/* Replies to GetProfiles and SelectProfile, and is also sent whenever any of it changes, after the
+ Ack of the request that changed it: a ProfileSecret that sets Phantom up is followed by a Profiles
+ with PHANTOM_OPEN and the new phantom_id. */
 typedef struct _bridge_Profiles {
     bridge_Profile active;
     bridge_Profile default_profile; /* active after power-up */
