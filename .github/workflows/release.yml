@@ -66,6 +66,7 @@ jobs:
           (umask 077 && printf '%s\n' "$SIGNING_KEY" > "$key")
           tools/sign_release.sh build "$key" tools/release-key.pub.pem dist "keyling-$TAG"
           cp build/firmware.elf "dist/keyling-$TAG.elf"
+          cp build/ota_data_initial.bin "dist/keyling-$TAG-otadata.bin"
           (cd dist && sha256sum * > SHA256SUMS)
       - name: Publish
         env:
@@ -78,7 +79,10 @@ jobs:
           prerelease=$([[ "$TAG" == *-* ]] && echo --prerelease || true)
           gh release create "$TAG" dist/* --verify-tag --generate-notes $prerelease --notes "$(cat <<EOF
           - \`keyling-$TAG.bin\`: update over Bluetooth (hub app or \`tools/client.py ota\`).
-          - \`keyling-$TAG-full.bin\`: first install over USB at offset 0x0. Erases pairing, settings and all keys.
+          - \`keyling-$TAG-full.bin\`: new dongles, over USB at offset 0x0. Erases pairing, settings and all keys.
+          - \`keyling-$TAG-otadata.bin\`: with \`keyling-$TAG.bin\`, for a dongle already in use, over USB
+            (BOOT held). Keeps pairing, settings and keys, as long as its partition table is the same:
+            \`esptool --chip esp32s3 write-flash 0xf000 keyling-$TAG-otadata.bin 0x20000 keyling-$TAG.bin\`
           - \`keyling-$TAG.elf\`: symbols for reading crash reports.
 
           Signed with the release key (SHA-256 \`$signer\`). Release firmware only accepts updates over
