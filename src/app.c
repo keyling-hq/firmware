@@ -15,6 +15,7 @@
 #include "esp_efuse_table.h"
 #include "esp_flash_encrypt.h"
 #include "esp_heap_caps.h"
+#include "esp_secure_boot.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -145,6 +146,7 @@ static void log_diagnostics(void)
     ESP_LOGI(TAG, "heap: %u free, %u minimum, %u largest block", (unsigned)esp_get_free_heap_size(),
              (unsigned)esp_get_minimum_free_heap_size(),
              (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT));
+    ESP_LOGI(TAG, "protocol task: stack free %u bytes minimum", protocol_stack_min_free());
     ESP_LOGI(TAG, "usb: mounted %d, caps lock %d; ble: state %d; typing %d", s_usb_mounted,
              (usb_hid_keyboard_leds() & 0x02) != 0, s_ble_state, s_typing);
     ESP_LOGI(TAG, "settings: layout %s, press %u ms, release %u ms, name %s", settings.layout,
@@ -354,6 +356,14 @@ static void get_security(bridge_Security *out)
     out->has_signed_updates = true;
 #ifdef CONFIG_SECURE_SIGNED_ON_UPDATE
     out->signed_updates = true;
+#endif
+#if CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME
+    esp_image_sig_public_key_digests_t digests = {0};
+    if (esp_secure_boot_get_signature_blocks_for_running_app(true, &digests) == ESP_OK) {
+        out->has_signer = true;
+        out->signer.size = sizeof(digests.key_digests[0]);
+        memcpy(out->signer.bytes, digests.key_digests[0], out->signer.size);
+    }
 #endif
     out->has_jtag_disabled = true;
     out->jtag_disabled = esp_efuse_read_field_bit(ESP_EFUSE_DIS_PAD_JTAG) &&

@@ -48,6 +48,9 @@ void protocol_status_changed(void);
 /** Something reported in Profiles changed; the phone is sent a fresh Profiles. */
 void protocol_profiles_changed(void);
 
+/** Lowest free stack of the protocol task since it started, in bytes. */
+unsigned protocol_stack_min_free(void);
+
 #ifdef __cplusplus
 }
 #endif

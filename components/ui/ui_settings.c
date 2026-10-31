@@ -95,11 +95,16 @@ static void show_about(void)
     snprintf(title, sizeof(title), "About  FIDO %s", ui_fido_status());
     lv_obj_t *list = ui_menu_begin(title, show_settings);
     lv_obj_t *info = lv_label_create(list);
-    lv_label_set_text_fmt(info, "Keyling %s\n%s\nkeys %s, boot %s, enc %s",
+#ifdef CONFIG_SECURE_SIGNED_ON_UPDATE
+    const char *updates = "signed";
+#else
+    const char *updates = "any";
+#endif
+    lv_label_set_text_fmt(info, "Keyling %s\n%s\nkeys %s, boot %s, enc %s\nupdates %s",
                           fw_info_version(),
                           keystore_is_secure() ? "Secure" : "INSECURE (dev)",
                           ks.root == KEYSTORE_ROOT_EFUSE ? "efuse" : "dev",
-                          ks.secure_boot ? "on" : "off", ks.flash_encryption ? "on" : "off");
+                          ks.secure_boot ? "on" : "off", ks.flash_encryption ? "on" : "off", updates);
     ui_menu_add(list, "Back", ui_submenu_cb, (intptr_t)show_settings);
     ui_menu_end(list, NULL);
 }
