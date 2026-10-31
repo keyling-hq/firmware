@@ -15,7 +15,7 @@ Runs on the LilyGo T-Dongle-S3 (ESP32-S3). It is also a FIDO2/U2F security key, 
 - CI checks and builds (`hid` and `release`) every push and pull request. Pushing a tag `vX.Y.Z`
   builds `release`, signs it after approval (`tools/sign_release.sh`) and publishes a GitHub release.
   Release firmware only accepts Bluetooth updates signed with the same key.
-- UI simulator: `sim/` runs the on-screen UI on Windows, in a window or as scripted screenshots;
+- UI simulator: `sim/` runs the on-screen UI on Windows or Linux, in a window or as scripted screenshots;
   see [sim/README.md](sim/README.md).
 
 ## License

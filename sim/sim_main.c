@@ -15,7 +15,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <windows.h>
 #include "lvgl.h"
 #include "keymap.h"
 #include "settings.h"
@@ -45,7 +44,7 @@ static int s_pending_count;
 
 static uint32_t tick_cb(void)
 {
-    return s_headless ? s_now : GetTickCount();
+    return s_headless ? s_now : sim_clock_ms();
 }
 
 static void flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px)
@@ -141,7 +140,7 @@ static void press(bool down)
 static void shot(const char *name)
 {
     lv_refr_now(NULL);
-    char path[MAX_PATH];
+    char path[512];
     snprintf(path, sizeof(path), "%s/%s.png", s_out, name);
     if (!sim_png_write(path, s_fb, WIDTH, HEIGHT, s_zoom, sim_brightness() == 0)) {
         fprintf(stderr, "cannot write %s\n", path);
@@ -287,9 +286,9 @@ static void start_ui(void)
     ui_set_profiles(s_active, s_default, s_phantom);
 }
 
-static bool key_edge(int vk, bool *was)
+static bool key_edge(int key, bool *was)
 {
-    bool down = (GetAsyncKeyState(vk) & 0x8000) != 0;
+    bool down = sim_key_down(key);
     bool edge = down && !*was;
     *was = down;
     return edge;
@@ -297,12 +296,10 @@ static bool key_edge(int vk, bool *was)
 
 static void run_window(void)
 {
-    lv_display_t *disp = lv_windows_create_display(L"Keyling UI", WIDTH, HEIGHT, s_zoom * 100, false, true);
-    if (!disp) {
+    if (!sim_window_create(WIDTH, HEIGHT, s_zoom)) {
         fprintf(stderr, "cannot create the window\n");
         exit(1);
     }
-    HWND hwnd = lv_windows_get_display_window_handle(disp);
     start_ui();
     printf("space: button | t: typing | p: pairing | f: security key request | u: USB | b: Bluetooth | "
            "l: locked | esc: quit\n");
@@ -310,10 +307,10 @@ static void run_window(void)
     bool was[8] = { 0 };
     bool typing = false, pairing = false, usb = true;
     int ble = UI_BLE_CONNECTED;
-    while (IsWindow(hwnd)) {
-        bool focused = GetForegroundWindow() == hwnd;
-        sim_button_set(focused && (GetAsyncKeyState(VK_SPACE) & 0x8000), GetTickCount());
-        sim_button_tick(GetTickCount());
+    while (sim_window_open()) {
+        bool focused = sim_window_focused();
+        sim_button_set(focused && sim_key_down(SIM_KEY_SPACE), sim_clock_ms());
+        sim_button_tick(sim_clock_ms());
         if (focused) {
             if (key_edge('T', &was[0])) {
                 ui_show_typing(typing = !typing);
@@ -335,12 +332,12 @@ static void run_window(void)
             if (key_edge('L', &was[5])) {
                 ui_show_profile_locked();
             }
-            if (key_edge(VK_ESCAPE, &was[6])) {
+            if (key_edge(SIM_KEY_ESC, &was[6])) {
                 break;
             }
         }
         run_once();
-        Sleep(STEP_MS);
+        sim_sleep_ms(STEP_MS);
     }
 }
 
@@ -367,7 +364,7 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    CreateDirectoryA(s_out, NULL);
+    sim_make_dir(s_out);
     lv_display_t *disp = lv_display_create(WIDTH, HEIGHT);
     lv_display_set_color_format(disp, LV_COLOR_FORMAT_RGB565);
     lv_display_set_buffers(disp, s_fb, NULL, sizeof(s_fb), LV_DISPLAY_RENDER_MODE_DIRECT);

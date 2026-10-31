@@ -2,7 +2,19 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "lvgl.h"
 #include "iot_button.h"
+
+/* OS-specific: sim_window.c. Keys are 'A'..'Z' or the codes below. */
+#define SIM_KEY_SPACE   0x100
+#define SIM_KEY_ESC     0x101
+lv_display_t *sim_window_create(int width, int height, int zoom);
+bool sim_window_open(void);
+bool sim_window_focused(void);
+bool sim_key_down(int key);
+uint32_t sim_clock_ms(void);
+void sim_sleep_ms(uint32_t ms);
+void sim_make_dir(const char *path);
 
 /* Button: the same event sequence as the button component, from press/release and the clock. */
 button_handle_t sim_button_handle(void);
