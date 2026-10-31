@@ -28,6 +28,7 @@
 #include <ccid.h>
 #include <device.h>
 #include <device-config.h>
+#include <key.h>
 #include <fs.h>
 #include <platform-config.h>
 #include <rand.h>
@@ -499,6 +500,12 @@ static esp_err_t activate(canokey_profile_t profile)
     s_profile_open = open;
     ESP_LOGI(TAG, "profile %d: %s", profile, open ? "active" : "locked");
     return ESP_OK;
+}
+
+/* Touch policy of the keys on a new OpenPGP card: Phantom's ask for confirmation on the dongle. */
+touch_policy_t canokey_port_openpgp_touch_default(void)
+{
+    return s_store_profile == CANOKEY_PROFILE_PHANTOM ? TOUCH_POLICY_CACHED : TOUCH_POLICY_DEFAULT;
 }
 
 static canokey_profile_t default_profile_load(void)

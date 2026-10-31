@@ -62,6 +62,13 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)
     copy_replacing(${CK}/applets/openpgp/openpgp.c ${CK_GEN}/openpgp/openpgp.c
         "0xf1, 0xd0, ( *// manufacturer)"
         "0xff, 0x00,\\1")
+    # New cards: keys' touch policy from the port (per profile); PIN tries user 5, reset code 5, admin 10.
+    copy_replacing(${CK_GEN}/openpgp/openpgp.c ${CK_GEN}/openpgp/openpgp.c
+        "ck_key_init_empty\\(&key, RSA2048, SIGN, PIN_POLICY_DEFAULT, TOUCH_POLICY_DEFAULT\\);"
+        "extern touch_policy_t canokey_port_openpgp_touch_default(void);\n  ck_key_init_empty(&key, RSA2048, SIGN, PIN_POLICY_DEFAULT, canokey_port_openpgp_touch_default());")
+    copy_replacing(${CK_GEN}/openpgp/openpgp.c ${CK_GEN}/openpgp/openpgp.c
+        "pin_create\\(&pw1, \"123456\", 6, PW_RETRY_COUNTER_DEFAULT\\) < 0\\) return -1;\r?\n  if \\(pin_create\\(&pw3, \"12345678\", 8, PW_RETRY_COUNTER_DEFAULT\\) < 0\\) return -1;\r?\n  if \\(pin_create\\(&rc, NULL, 0, PW_RETRY_COUNTER_DEFAULT\\)"
+        "pin_create(&pw1, \"123456\", 6, 5) < 0) return -1;\n  if (pin_create(&pw3, \"12345678\", 8, 10) < 0) return -1;\n  if (pin_create(&rc, NULL, 0, 5)")
     configure_file(${CK}/applets/openpgp/key.h ${CK_GEN}/openpgp/key.h COPYONLY)
     # Switching profiles changes the card under the applet: its cached state is dropped with the rest.
     copy_replacing(${CK_GEN}/openpgp/openpgp.c ${CK_GEN}/openpgp/openpgp.c
