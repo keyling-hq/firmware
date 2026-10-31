@@ -12,8 +12,11 @@ Runs on the LilyGo T-Dongle-S3 (ESP32-S3). It is also a FIDO2/U2F security key, 
   `tools/client.py`.
 - Checks (also run by CI): `tools/.venv/Scripts/ruff check .` and `tools/.venv/Scripts/pyright`, with
   `tools/requirements-dev.txt` installed in the venv.
-- CI checks every push and pull request; firmware is only built for releases: pushing a tag
-  `vX.Y.Z` builds the `hid` firmware and publishes a GitHub release.
+- CI checks and builds (`hid` and `release`) every push and pull request. Pushing a tag `vX.Y.Z`
+  builds `release`, signs it after approval (`tools/sign_release.sh`) and publishes a GitHub release.
+  Release firmware only accepts Bluetooth updates signed with the same key.
+- UI simulator: `sim/` runs the on-screen UI on Windows, in a window or as scripted screenshots;
+  see [sim/README.md](sim/README.md).
 
 ## License
 
