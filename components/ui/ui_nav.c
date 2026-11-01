@@ -194,7 +194,8 @@ static void show_menu(level_t *level)
 {
     const ui_menu_def_t *def = level->menu;
     const char *title = def->title_fn ? def->title_fn(level->arg) : def->title;
-    ui_menu_t *menu = def->message ? ui_dialog_begin(title, def->message, back) : ui_menu_begin(title, back);
+    ui_screen_fn_t on_back = s_depth == 1 && def->exit_by_hold ? NULL : back;
+    ui_menu_t *menu = def->message ? ui_dialog_begin(title, def->message, on_back) : ui_menu_begin(title, on_back);
     lv_obj_t *first = NULL, *focus = NULL;
     for (size_t i = 0; i < def->count; i++) {
         const ui_option_t *o = &def->options[i];

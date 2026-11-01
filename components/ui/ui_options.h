@@ -83,6 +83,8 @@ struct ui_menu_def {
     const char *message;            /* set: shown as a dialog (a message and one or two options) */
     const ui_option_t *options;
     size_t count;
+    bool exit_by_hold;              /* as an app's root: double click turns the screen off instead of
+                                       leaving, so only a UI_EXIT option leaves (e.g. a running jiggler) */
 };
 
 #define UI_ACTION(text_, fn_)               { .kind = UI_OPT_ACTION, .text = (text_), .fn = (fn_) }

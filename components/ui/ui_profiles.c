@@ -1,19 +1,17 @@
 #include <stdio.h>
 #include "ui_priv.h"
 
-static void show_profiles(void);
-static void show_profile(void);
-
-/* The profile whose menu is open, and the screen to rebuild when the profiles change. */
-static ui_profile_t s_profile;
-static ui_screen_fn_t s_screen = show_profiles;
-
 static ui_profile_t other_profile(ui_profile_t profile)
 {
     return profile == UI_PROFILE_MAIN ? UI_PROFILE_PHANTOM : UI_PROFILE_MAIN;
 }
 
-static const char *state_text(ui_profile_t profile)
+static bool is_active(intptr_t profile)
+{
+    return (ui_profile_t)profile == ui_profile_active();
+}
+
+static const char *state_value(intptr_t profile)
 {
     if (profile != UI_PROFILE_PHANTOM) {
         return "";
@@ -28,99 +26,95 @@ static const char *state_text(ui_profile_t profile)
     }
 }
 
-/* ---- one profile's menu -------------------------------------------------- */
+/* ---- one profile's menu: ui_menu_arg() is the profile ------------------------------------- */
 
-static void use_cb(lv_event_t *e)
+static const char *profile_title(intptr_t profile)
 {
-    ui_emit(UI_ACTION_SELECT_PROFILE, s_profile);
-    ui_navigate(show_profiles);
+    return ui_profile_name(profile);
 }
 
-static void startup_cb(lv_event_t *e)
+static bool open_is_active(intptr_t arg)
 {
-    ui_emit(UI_ACTION_DEFAULT_PROFILE, s_profile);
+    return is_active(ui_menu_arg());
 }
 
-static void erase(void)
+static const char *use_text(intptr_t arg)
 {
-    ui_emit(UI_ACTION_RESET_PROFILE, s_profile);
-    ui_navigate(show_profile);
+    return open_is_active(arg) ? "In use" : "Use";
 }
 
-static void show_erase(void)
+static void use(intptr_t arg)
 {
-    s_screen = show_erase;
-    char title[32];
-    snprintf(title, sizeof(title), "Erase %s?", ui_profile_name(s_profile));
-    ui_menu_t *dialog = ui_dialog_begin(title, "Its keys are deleted", show_profile);
-    lv_obj_t *cancel = ui_menu_add(dialog, "Cancel", ui_submenu_cb, (intptr_t)show_profile);
-    ui_hold_add(dialog, "Hold to erase", UI_HOLD_RESET_MS, erase);
-    ui_menu_end(dialog, cancel);
-}
-
-static void show_profile(void)
-{
-    s_screen = show_profile;
-    ui_menu_t *menu = ui_menu_begin(ui_profile_name(s_profile), show_profiles);
-    if (s_profile == ui_profile_active()) {
-        ui_menu_mark(menu, ui_menu_add(menu, "In use", NULL, 0));
-    } else {
-        ui_menu_add(menu, "Use", use_cb, 0);
+    if (!open_is_active(arg)) {
+        ui_emit(UI_ACTION_SELECT_PROFILE, (int)ui_menu_arg());
+        ui_back(1);
     }
-    bool startup = s_profile == ui_profile_default();
-    lv_obj_t *item = ui_menu_add(menu, "Start with this", startup ? NULL : startup_cb, 0);
-    if (startup) {
-        ui_menu_mark(menu, item);
-    }
-    ui_menu_add(menu, "Erase", ui_submenu_cb, (intptr_t)show_erase);
-    ui_menu_end(menu, NULL);
 }
 
-/* ---- top level ------------------------------------------------------------ */
+static bool is_startup(intptr_t arg)
+{
+    return (ui_profile_t)ui_menu_arg() == ui_profile_default();
+}
 
-static void switch_cb(lv_event_t *e)
+static void make_startup(intptr_t arg)
+{
+    ui_emit(UI_ACTION_DEFAULT_PROFILE, (int)ui_menu_arg());
+}
+
+static const char *erase_title(intptr_t profile)
+{
+    static char title[32];
+    snprintf(title, sizeof(title), "Erase %s?", ui_profile_name(profile));
+    return title;
+}
+
+static void erase(intptr_t profile)
+{
+    ui_emit(UI_ACTION_RESET_PROFILE, (int)profile);
+}
+
+static const ui_confirm_t s_erase = {
+    .title_fn = erase_title,
+    .message = "Its keys are deleted",
+    .confirm = "Hold to erase",
+    .hold_ms = UI_HOLD_RESET_MS,
+    .fn = erase,
+};
+
+static const ui_option_t s_profile[] = {
+    UI_OPTION(.kind = UI_OPT_ACTION, .text_fn = use_text, .marked_fn = open_is_active, .fn = use),
+    UI_OPTION(.kind = UI_OPT_ACTION, .text = "Start with this", .marked_fn = is_startup, .fn = make_startup),
+    UI_CONFIRM("Erase", &s_erase),
+};
+static UI_MENU_DYN(s_profile_menu, profile_title, s_profile);
+
+/* ---- top level ---------------------------------------------------------------------------- */
+
+static const char *switch_text(intptr_t arg)
+{
+    static char text[32];
+    snprintf(text, sizeof(text), "Switch to %s", ui_profile_name(other_profile(ui_profile_active())));
+    return text;
+}
+
+static void switch_profile(intptr_t arg)
 {
     ui_emit(UI_ACTION_SELECT_PROFILE, other_profile(ui_profile_active()));
 }
 
-static void open_cb(lv_event_t *e)
-{
-    s_profile = (ui_profile_t)(intptr_t)lv_event_get_user_data(e);
-    ui_navigate(show_profile);
-}
-
-static void show_profiles(void)
-{
-    s_screen = show_profiles;
-    ui_menu_t *menu = ui_menu_begin("Profiles", ui_app_exit);
-    char text[40];
-    snprintf(text, sizeof(text), "Switch to %s", ui_profile_name(other_profile(ui_profile_active())));
-    lv_obj_t *focus = ui_menu_add(menu, text, switch_cb, 0);
-    for (int i = 0; i < UI_PROFILE_COUNT; i++) {
-        lv_obj_t *item = ui_menu_add_value(menu, ui_profile_name(i), state_text(i), open_cb, i);
-        if (i == (int)ui_profile_active()) {
-            ui_menu_mark(menu, item);
-        }
-    }
-    ui_menu_end(menu, focus);
-}
-
-static void start(void)
-{
-    s_screen = show_profiles;
-}
-
-static void refresh(void)
-{
-    s_screen();
-}
+static const ui_option_t s_profiles[] = {
+    UI_OPTION(.kind = UI_OPT_ACTION, .text_fn = switch_text, .fn = switch_profile),
+    UI_OPTION(.kind = UI_OPT_SUBMENU, .text = "Main", .submenu = &s_profile_menu, .arg = UI_PROFILE_MAIN,
+              .value_fn = state_value, .marked_fn = is_active),
+    UI_OPTION(.kind = UI_OPT_SUBMENU, .text = "Phantom", .submenu = &s_profile_menu, .arg = UI_PROFILE_PHANTOM,
+              .value_fn = state_value, .marked_fn = is_active),
+};
+static UI_MENU(s_profiles_menu, "Profiles", s_profiles);
 
 const ui_app_t ui_app_profiles = {
     .id = "profiles",
     .name = "Profiles",
     .icon = LV_SYMBOL_LIST,
     .color = 0x4ECDC4,
-    .start = start,
-    .show = show_profiles,
-    .refresh = refresh,
+    .menu = &s_profiles_menu,
 };

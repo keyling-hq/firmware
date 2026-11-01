@@ -1,8 +1,10 @@
-#include <stdio.h>
 #include "ui_priv.h"
 #include "usb_hid.h"
 
-#define JIGGLE_INTERVAL_MS  2000
+#define JIGGLE_INTERVAL_S   2
+#define JIGGLE_INTERVAL_MS  (JIGGLE_INTERVAL_S * 1000)
+#define STR_(x)             #x
+#define STR(x)              STR_(x)
 #define JIGGLE_DISTANCE     60
 
 static lv_timer_t *s_timer;
@@ -34,13 +36,18 @@ static void stop(void)
     }
 }
 
-static void show(void)
-{
-    char message[32];
-    snprintf(message, sizeof(message), "Moving every %u s", JIGGLE_INTERVAL_MS / 1000);
-    ui_menu_t *dialog = ui_dialog_begin("Mouse jiggler", message, NULL);
-    ui_menu_end(dialog, ui_hold_add(dialog, "Hold to stop", UI_HOLD_EXIT_MS, ui_app_exit));
-}
+static const ui_option_t s_options[] = {
+    UI_EXIT("Hold to stop"),
+};
+
+/* Runs until stopped with a hold: a stray double click only turns the screen off. */
+static const ui_menu_def_t s_menu = {
+    .title = "Mouse jiggler",
+    .message = "Moving every " STR(JIGGLE_INTERVAL_S) " s",
+    .options = s_options,
+    .count = sizeof(s_options) / sizeof(s_options[0]),
+    .exit_by_hold = true,
+};
 
 const ui_app_t ui_app_jiggler = {
     .id = "jiggler",
@@ -48,6 +55,6 @@ const ui_app_t ui_app_jiggler = {
     .icon = LV_SYMBOL_SHUFFLE,
     .color = 0xFF6B6B,
     .start = start,
-    .show = show,
+    .menu = &s_menu,
     .stop = stop,
 };
