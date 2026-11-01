@@ -580,12 +580,41 @@ static void item_key_cb(lv_event_t *e)
     }
 }
 
+static ui_menu_t *s_menu;
+
+/*
+ * Empties the screen being left before the next one is built, so only one screen's objects exist
+ * at a time: the LVGL heap needn't hold two (a menu rebuilt in place would double the largest).
+ * Its group goes first, so deleting items moves no focus and sends no focus events.
+ */
+static void screen_leave(void)
+{
+    lv_obj_t *old = lv_screen_active();
+    if (!old) {
+        return;
+    }
+    if (s_menu) {
+        lv_anim_delete(s_menu, NULL);
+        s_menu = NULL;
+    }
+    lv_group_t *old_group = lv_obj_get_user_data(old);
+    if (old_group) {
+        if (s_indev) {
+            lv_indev_set_group(s_indev, NULL);
+        }
+        lv_group_delete(old_group);
+        lv_obj_set_user_data(old, NULL);
+    }
+    lv_obj_clean(old);
+}
+
 static lv_obj_t *screen_begin(ui_screen_fn_t back)
 {
     s_back = back;
     s_update_label = NULL;
     lv_anim_delete(&s_launcher, NULL);
     s_launcher.scr = NULL;
+    screen_leave();
 
     lv_group_t *group = lv_group_create();
     lv_group_set_wrap(group, true);
@@ -715,6 +744,7 @@ static ui_menu_t *menu_begin(ui_menu_kind_t kind, const char *title, ui_screen_f
     m->fn = s_building;
     snprintf(m->title, sizeof(m->title), "%s", title ? title : "");
     lv_obj_add_event_cb(scr, menu_delete_cb, LV_EVENT_DELETE, m);
+    s_menu = m;
     return m;
 }
 
@@ -1475,6 +1505,8 @@ esp_err_t ui_start(button_handle_t btn, ui_action_cb_t action_cb)
         return ESP_ERR_TIMEOUT;
     }
     s_action_cb = action_cb;
+    /* Themes style everything they draw: LVGL's default theme would only add unused styles. */
+    lv_display_set_theme(lv_display_get_default(), NULL);
     theme_load();
     settings_t settings;
     settings_get(&settings);
