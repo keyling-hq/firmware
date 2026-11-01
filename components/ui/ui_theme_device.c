@@ -201,6 +201,10 @@ static void menu_build(ui_menu_t *m)
     /* The selection bar sits behind the items: their text turns light while they cross it. */
     m->part[M_SELECT] = ui_box(m->scr, 2, select_y(m), select_w(m), ROW_H, FG, 0);
     lv_obj_move_to_index(m->part[M_SELECT], 0);
+    if (m->kind == UI_MENU_DIALOG && m->count > 1) {
+        /* Only the focused item shows: an arrow on the bar says that clicking reaches more. */
+        lv_obj_align(ui_more_hint(m->part[M_SELECT], BG), LV_ALIGN_RIGHT_MID, -5, 0);
+    }
     for (int i = 0; i < m->count; i++) {
         item_build(m, &m->items[i]);
     }

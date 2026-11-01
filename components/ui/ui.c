@@ -19,6 +19,7 @@ static const char *TAG = "ui";
 #define TICKER_PX_PER_S     14
 #define TICKER_PAUSE_MS     1500
 #define TICKER_GAP          24
+#define LABEL_PX_PER_S      22
 /* Waits for the lock: dropping these would leave a request without its prompt. */
 #define PROMPT_LOCK_MS      200
 
@@ -241,7 +242,29 @@ lv_obj_t *ui_label_scroll(lv_obj_t *parent, const lv_font_t *font, uint32_t colo
 {
     lv_obj_t *l = ui_label(parent, font, color, text);
     lv_obj_set_width(l, width);
-    lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_SCROLL);
+    lv_obj_set_style_anim_duration(l, lv_anim_speed_clamped(LABEL_PX_PER_S, 300, 30000), 0);
+    lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
+    return l;
+}
+
+static void more_hint_anim_cb(void *var, int32_t v)
+{
+    lv_obj_set_style_translate_y(var, v, 0);
+}
+
+lv_obj_t *ui_more_hint(lv_obj_t *parent, uint32_t color)
+{
+    lv_obj_t *l = ui_label(parent, &lv_font_montserrat_10, color, LV_SYMBOL_DOWN);
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, l);
+    lv_anim_set_exec_cb(&a, more_hint_anim_cb);
+    lv_anim_set_values(&a, -1, 2);
+    lv_anim_set_duration(&a, 500);
+    lv_anim_set_reverse_duration(&a, 500);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_start(&a);
     return l;
 }
 

@@ -322,7 +322,7 @@ static void run_window(void)
         exit(1);
     }
     start_ui();
-    printf("space: button | t: typing | p: pairing | f: security key request | u: USB | b: Bluetooth | "
+    printf("space: button | t: typing | p: pairing | f: security key request | x: deny it | u: USB | b: Bluetooth | "
            "l: locked | 1-9: theme | esc: quit\n");
 
     bool was[8] = { 0 };
@@ -348,6 +348,9 @@ static void run_window(void)
             }
             if (key_edge('F', &was[2])) {
                 ui_show_fido_request(UI_FIDO_SIGN_IN, "github.com");
+            }
+            if (key_edge('X', &was[7])) {
+                ui_show_fido_done(false);
             }
             if (key_edge('U', &was[3])) {
                 ui_set_usb_state(usb = !usb);

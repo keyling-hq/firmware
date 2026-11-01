@@ -83,6 +83,9 @@ static void menu_build(ui_menu_t *m)
     } else if (m->message[0]) {
         lv_obj_set_pos(ui_label_scroll(m->scr, &lv_font_montserrat_12, DIM, m->message, UI_W - 16), 8, 21);
     }
+    if (m->kind == UI_MENU_DIALOG && m->count > 1) {
+        lv_obj_align(ui_more_hint(m->scr, ACCENT), LV_ALIGN_BOTTOM_RIGHT, -8, -5);
+    }
     for (int i = 0; i < m->count; i++) {
         ui_item_t *item = &m->items[i];
         item->part[I_FILL] = ui_box(item->obj, 0, 15, 0, 2, ACCENT, 0);

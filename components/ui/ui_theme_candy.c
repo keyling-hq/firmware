@@ -24,7 +24,7 @@ enum { L_NAME = 8, L_PROFILE_BOX, L_PROFILE, L_BLE, L_USB };
 /* Item parts. */
 enum { I_FILL, I_TEXT, I_VALUE };
 /* Menu parts. */
-enum { M_ARC, M_HINT, M_DOTS };
+enum { M_ARC, M_HINT, M_MORE };
 
 static float clampf(float x, float lo, float hi)
 {
@@ -176,7 +176,9 @@ static void menu_build(ui_menu_t *m)
             lv_obj_set_pos(msg, 8, HEADER_H + 4);
         }
         if (m->count > 1) {
-            m->part[M_DOTS] = ui_label(m->scr, &lv_font_montserrat_10, DIM, "");
+            /* Only the focused item shows: an arrow on it says that clicking reaches more. */
+            m->part[M_MORE] = ui_more_hint(m->scr, BG);
+            lv_obj_align(m->part[M_MORE], LV_ALIGN_BOTTOM_RIGHT, -16, -9);
         }
         break;
     case UI_MENU_LIST:
@@ -214,10 +216,6 @@ static void menu_place(ui_menu_t *m)
         if (item->part[I_VALUE]) {
             lv_obj_set_style_text_color(item->part[I_VALUE], ui_mix(BG, DIM, off), 0);
         }
-    }
-    if (m->part[M_DOTS]) {
-        lv_label_set_text_fmt(m->part[M_DOTS], "%d/%d", m->focus + 1, m->count);
-        lv_obj_align(m->part[M_DOTS], LV_ALIGN_BOTTOM_RIGHT, -3, -ROW_H - 6);
     }
 }
 

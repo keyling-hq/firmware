@@ -98,6 +98,7 @@ With the window focused:
 | `t` | typing on/off |
 | `p` | pairing window (passkey and QR code) |
 | `f` | security key request ("Sign in to github.com") |
+| `x` | the security key request ends without approval ("Not approved") |
 | `u` | USB connected/disconnected |
 | `b` | next Bluetooth state |
 | `l` | "profile locked" message |

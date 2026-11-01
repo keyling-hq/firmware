@@ -134,8 +134,10 @@ const char *ui_tone_symbol(ui_tone_t tone);
 /** A plain object without the default theme's styles. */
 lv_obj_t *ui_box(lv_obj_t *parent, int x, int y, int w, int h, uint32_t bg, int radius);
 lv_obj_t *ui_label(lv_obj_t *parent, const lv_font_t *font, uint32_t color, const char *text);
-/** A one-line label of the given width that scrolls back and forth when the text doesn't fit. */
+/** A one-line label of the given width that scrolls in a loop when the text doesn't fit. */
 lv_obj_t *ui_label_scroll(lv_obj_t *parent, const lv_font_t *font, uint32_t color, const char *text, int width);
+/** A small down arrow that bobs: more items follow (dialogs, where only one item shows). */
+lv_obj_t *ui_more_hint(lv_obj_t *parent, uint32_t color);
 /** Text that scrolls up slowly in an endless loop inside the given area when it doesn't fit. */
 lv_obj_t *ui_ticker(lv_obj_t *parent, int x, int y, int w, int h, const lv_font_t *font, uint32_t color,
                     const char *text);
