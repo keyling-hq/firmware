@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "lvgl.h"
 #include "iot_button.h"
+#include "ui.h"
 
 /* OS-specific: sim_window.c. Keys are 'A'..'Z', '1'..'9' or the codes below. */
 #define SIM_KEY_SPACE   0x100
@@ -23,6 +24,8 @@ void sim_button_tick(uint32_t now_ms);
 
 /* Last value from bsp_display_brightness_set(): 0 means the backlight is off. */
 int sim_brightness(void);
+/* The status LED follows the Bluetooth state as on the dongle (app.c). */
+void sim_led_for_ble(ui_ble_state_t state);
 /* bsp_display_flip(): screenshots are turned with it, the window can't be. */
 bool sim_flipped(void);
 

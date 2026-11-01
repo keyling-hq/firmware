@@ -71,6 +71,7 @@ add_executable(keyling_ui_sim
     ${FW}/components/ui/ui_settings.c
     ${FW}/components/ui/ui_theme_candy.c
     ${FW}/components/ui/ui_theme_device.c
+    ${FW}/components/status_led/status_led_pattern.c
     ${FW}/components/keymap/keymap.c
     ${FW}/components/keymap/keymap_layouts.c
     sim_main.c
@@ -123,6 +124,7 @@ target_include_directories(keyling_ui_sim PRIVATE
     ${FW}/components/keymap/include
     ${FW}/components/keystore/include
     ${FW}/components/settings/include
+    ${FW}/components/status_led/include
     ${FW}/components/usb_hid/include
 )
 target_compile_options(keyling_ui_sim PRIVATE -Wall -Wno-unused-function)

@@ -9,6 +9,7 @@
 #include "esp_lvgl_port.h"
 #include "esp_log.h"
 #include "settings.h"
+#include "status_led.h"
 #include "src/libs/qrcode/qrcodegen.h"
 #include "src/misc/cache/instance/lv_image_cache.h"
 
@@ -23,6 +24,8 @@ static const char *TAG = "ui";
 #define SCROLL_PX_PER_S     60
 #define SCROLL_PAUSE_MS     500
 #define SCROLL_GAP          24
+#define BLE_CONNECTED_COLOR 0x4D9BFF
+#define STATUS_TICK_MS      33
 /* Waits for the lock: dropping these would leave a request without its prompt. */
 #define PROMPT_LOCK_MS      200
 
@@ -205,18 +208,29 @@ const char *ui_tone_symbol(ui_tone_t tone)
     }
 }
 
+/*
+ * The Bluetooth symbol shows what the status LED shows, in step with it: the LED's color at full
+ * strength, faded towards dim as the LED dims. Once connected and the LED's flash is over, it stays
+ * BLE_CONNECTED_COLOR.
+ */
 uint32_t ui_ble_color(const ui_status_t *s)
 {
-    switch (s->ble) {
-    case UI_BLE_CONNECTED:
-        return s_theme->pal.good;
-    case UI_BLE_PAIRING:
-    case UI_BLE_SECURING:
-    case UI_BLE_UNPAIRED:
-        return s_theme->pal.warn;
-    default:
-        return s_theme->pal.dim;
+    status_led_pattern_t pattern;
+    uint32_t ms;
+    bool done;
+    status_led_base(&pattern, &ms);
+    status_led_color_t c = status_led_render(pattern, ms, &done);
+    uint8_t peak = c.r > c.g ? (c.r > c.b ? c.r : c.b) : (c.g > c.b ? c.g : c.b);
+    if (peak == 0) {
+        return s->ble == UI_BLE_CONNECTED ? BLE_CONNECTED_COLOR : s_theme->pal.dim;
     }
+    uint32_t full = (uint32_t)(c.r * 255 / peak) << 16 | (uint32_t)(c.g * 255 / peak) << 8 | (c.b * 255 / peak);
+    return lv_color_to_u32(ui_mix(s_theme->pal.dim, full, (float)peak / STATUS_LED_PEAK)) & 0xFFFFFF;
+}
+
+bool ui_ble_lit(const ui_status_t *s)
+{
+    return ui_ble_color(s) != s_theme->pal.dim;
 }
 
 uint32_t ui_usb_color(const ui_status_t *s)
@@ -871,6 +885,21 @@ static void update_status(void)
     }
 }
 
+/* Keeps the launcher's Bluetooth symbol in step with the status LED. */
+static uint32_t s_ble_shown;
+
+static void status_timer_cb(lv_timer_t *timer)
+{
+    if (!s_screen_on || !s_launcher.scr || s_launcher.scr != lv_screen_active()) {
+        return;
+    }
+    uint32_t color = ui_ble_color(&s_launcher.status);
+    if (color != s_ble_shown) {
+        s_ble_shown = color;
+        s_theme->status_update(&s_launcher);
+    }
+}
+
 static void open_selected_app(void)
 {
     s_app = s_apps[s_launcher_index];
@@ -970,6 +999,7 @@ static void show_launcher(void)
     status_fill(&s_launcher.status);
     s_theme->launcher_build(&s_launcher);
     s_theme->launcher_place(&s_launcher);
+    s_ble_shown = ui_ble_color(&s_launcher.status);
     screen_end(scr, focus);
 }
 
@@ -1474,6 +1504,7 @@ esp_err_t ui_start(button_handle_t btn, ui_action_cb_t action_cb)
     if (s_indev) {
         show_launcher();
         lv_timer_create(screen_timer_cb, SCREEN_TICK_MS, NULL);
+        lv_timer_create(status_timer_cb, STATUS_TICK_MS, NULL);
         screen_set(false);
     } else {
         ret = ESP_ERR_NO_MEM;

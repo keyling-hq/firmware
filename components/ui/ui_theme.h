@@ -156,6 +156,12 @@ lv_obj_t *ui_more_hint(lv_obj_t *parent, uint32_t color);
 /** Text that scrolls up slowly in an endless loop inside the given area when it doesn't fit. */
 lv_obj_t *ui_ticker(lv_obj_t *parent, int x, int y, int w, int h, const lv_font_t *font, uint32_t color,
                     const char *text);
-/** Colors for the Bluetooth and USB status symbols: good when connected, dim when not. */
+/**
+ * The Bluetooth symbol's color right now: in step with the status LED (its color, fading to dim),
+ * solid blue once connected. The shared code calls status_update whenever it changes.
+ */
 uint32_t ui_ble_color(const ui_status_t *s);
+/** False while ui_ble_color() is the palette's dim color (LED dark, not connected). */
+bool ui_ble_lit(const ui_status_t *s);
+/** The USB symbol: good while a computer has set the dongle up, dim on power alone. */
 uint32_t ui_usb_color(const ui_status_t *s);

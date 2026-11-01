@@ -36,6 +36,13 @@ static int s_zoom = 4;
 static ui_profile_t s_active = UI_PROFILE_MAIN, s_default = UI_PROFILE_MAIN;
 static ui_phantom_state_t s_phantom = UI_PHANTOM_OPEN;
 
+/* As app.c does: the status LED's pattern follows the Bluetooth state, then the UI is told. */
+static void set_ble(ui_ble_state_t state)
+{
+    sim_led_for_ble(state);
+    ui_set_ble_state(state);
+}
+
 /* Actions are applied between LVGL runs, as the firmware applies them from its own tasks. */
 #define MAX_PENDING 8
 static struct {
@@ -79,14 +86,14 @@ static void apply_action(ui_action_t action, int arg)
         settings_set(&settings);
         break;
     case UI_ACTION_PAIR_NEW:
-        ui_set_ble_state(UI_BLE_UNPAIRED);
+        set_ble(UI_BLE_UNPAIRED);
         ui_show_pairing(true, 482915, "KL1:34851857FE92:482915");
         break;
     case UI_ACTION_CANCEL_PAIRING:
         ui_show_pairing(false, 0, NULL);
         break;
     case UI_ACTION_FORGET_PHONE:
-        ui_set_ble_state(UI_BLE_UNPAIRED);
+        set_ble(UI_BLE_UNPAIRED);
         break;
     case UI_ACTION_FIDO_CONFIRM:
     case UI_ACTION_FIDO_RESET_CONFIRM:
@@ -256,7 +263,7 @@ static void command(char *line)
     } else if (strcmp(cmd, "usb") == 0) {
         ui_set_usb_state(on(a1));
     } else if (strcmp(cmd, "ble") == 0 && lookup(a1, s_ble_names, 5) >= 0) {
-        ui_set_ble_state(lookup(a1, s_ble_names, 5));
+        set_ble(lookup(a1, s_ble_names, 5));
     } else if (strcmp(cmd, "typing") == 0) {
         ui_show_typing(on(a1));
     } else if (strcmp(cmd, "pairing") == 0) {
@@ -326,7 +333,7 @@ static void start_ui(void)
     }
     ui_set_fido_status("ok");
     ui_set_usb_state(true);
-    ui_set_ble_state(UI_BLE_CONNECTED);
+    set_ble(UI_BLE_CONNECTED);
     ui_set_profiles(s_active, s_default, s_phantom);
 }
 
@@ -390,7 +397,7 @@ static void run_window(void)
             }
             if (key_edge('B', &was[4])) {
                 ble = (ble + 1) % 5;
-                ui_set_ble_state(ble);
+                set_ble(ble);
             }
             if (key_edge('L', &was[5])) {
                 ui_show_profile_locked();

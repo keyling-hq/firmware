@@ -15,5 +15,5 @@ endif()
 idf_component_register(
     SRCS ${srcs}
     INCLUDE_DIRS "include"
-    PRIV_REQUIRES bsp fw_info keymap keystore settings usb_hid
+    PRIV_REQUIRES bsp fw_info keymap keystore settings status_led usb_hid
 )

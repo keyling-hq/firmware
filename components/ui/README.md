@@ -45,6 +45,11 @@ opens. Text that fits never moves. Dialogs whose other items are hidden show a b
   mirroring, so it costs nothing); saved in settings and applied at start.
 - **Themes:** Settings → Theme switches at once and is saved; `ui_reload_theme()` applies a theme
   changed from outside the UI (e.g. the phone).
+- **Status symbols** on the launcher: Bluetooth shows what the status LED shows, in step with it
+  (its color, fading as the LED fades: the blue pulse while not paired, orange blinks while
+  pairing, the green flash on connecting), then solid blue while connected and dim while the
+  paired phone is away. USB is lit while a computer has set the dongle up; dim means power only
+  (a charger, or a computer that is off or asleep), so nothing receives keystrokes.
 
 ## Built-in apps
 
