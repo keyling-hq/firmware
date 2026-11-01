@@ -19,7 +19,9 @@ static const char *TAG = "ui";
 #define TICKER_PX_PER_S     14
 #define TICKER_PAUSE_MS     1500
 #define TICKER_GAP          24
-#define LABEL_PX_PER_S      22
+#define SCROLL_PX_PER_S     40
+#define SCROLL_PAUSE_MS     500
+#define SCROLL_GAP          24
 /* Waits for the lock: dropping these would leave a request without its prompt. */
 #define PROMPT_LOCK_MS      200
 
@@ -238,13 +240,108 @@ lv_obj_t *ui_label(lv_obj_t *parent, const lv_font_t *font, uint32_t color, cons
     return l;
 }
 
+/*
+ * Scrolling labels: a clipping box holding the text and, when the text doesn't fit, a
+ * second copy one period after it, so moving both by a period loops seamlessly. Text that fits
+ * stays still. A label scrolls only while active (focused items, or always outside items), and
+ * always restarts from the beginning after a pause.
+ */
+static const char s_scroll_tag = 0;
+static int s_scroll_px_per_s = SCROLL_PX_PER_S;
+
+int ui_scroll_speed(void)
+{
+    return s_scroll_px_per_s;
+}
+
+void ui_scroll_speed_set(int px_per_s)
+{
+    s_scroll_px_per_s = px_per_s > 0 ? px_per_s : SCROLL_PX_PER_S;
+}
+
+/* Moves the text and, one period behind it, its copy. */
+static void scroll_anim_cb(lv_anim_t *a, int32_t v)
+{
+    lv_obj_t *box = a->var;
+    lv_obj_set_x(lv_obj_get_child(box, 0), v);
+    lv_obj_set_x(lv_obj_get_child(box, 1), v + (int32_t)(intptr_t)lv_anim_get_user_data(a));
+}
+
+static void scroll_set(lv_obj_t *box, bool active, bool force)
+{
+    if (!force && active == lv_obj_has_flag(box, LV_OBJ_FLAG_USER_1)) {
+        return;
+    }
+    if (active) {
+        lv_obj_add_flag(box, LV_OBJ_FLAG_USER_1);
+    } else {
+        lv_obj_remove_flag(box, LV_OBJ_FLAG_USER_1);
+    }
+    lv_anim_delete(box, NULL);
+    lv_obj_t *text = lv_obj_get_child(box, 0);
+    lv_point_t size;
+    lv_text_get_size(&size, lv_label_get_text(text), lv_obj_get_style_text_font(box, 0), 0, 0, LV_COORD_MAX,
+                     LV_TEXT_FLAG_NONE);
+    int32_t width = lv_obj_get_style_width(box, 0);
+    if (size.x <= width) {
+        lv_text_align_t align = lv_obj_get_style_text_align(box, 0);
+        lv_obj_set_x(text, align == LV_TEXT_ALIGN_RIGHT ? width - size.x
+                           : align == LV_TEXT_ALIGN_CENTER ? (width - size.x) / 2 : 0);
+        return;
+    }
+    /* Only text that overflows gets the copy that makes the loop seamless. */
+    int32_t period = size.x + SCROLL_GAP;
+    lv_obj_t *copy = lv_obj_get_child(box, 1);
+    if (!copy) {
+        copy = lv_label_create(box);
+        lv_label_set_text(copy, lv_label_get_text(text));
+    }
+    lv_obj_set_x(text, 0);
+    lv_obj_set_x(copy, period);
+    if (!active) {
+        return;
+    }
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, box);
+    lv_anim_set_custom_exec_cb(&a, scroll_anim_cb);
+    lv_anim_set_user_data(&a, (void *)(intptr_t)period);
+    lv_anim_set_values(&a, 0, -period);
+    lv_anim_set_duration(&a, (uint32_t)period * 1000 / s_scroll_px_per_s);
+    lv_anim_set_delay(&a, SCROLL_PAUSE_MS);
+    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_start(&a);
+}
+
+void ui_scroll_activate(lv_obj_t *tree, bool active)
+{
+    if (lv_obj_get_user_data(tree) == &s_scroll_tag) {
+        scroll_set(tree, active, false);
+        return;
+    }
+    for (uint32_t i = 0; i < lv_obj_get_child_count(tree); i++) {
+        ui_scroll_activate(lv_obj_get_child(tree, i), active);
+    }
+}
+
 lv_obj_t *ui_label_scroll(lv_obj_t *parent, const lv_font_t *font, uint32_t color, const char *text, int width)
 {
-    lv_obj_t *l = ui_label(parent, font, color, text);
-    lv_obj_set_width(l, width);
-    lv_obj_set_style_anim_duration(l, lv_anim_speed_clamped(LABEL_PX_PER_S, 300, 30000), 0);
-    lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
-    return l;
+    lv_obj_t *box = lv_obj_create(parent);
+    lv_obj_remove_style_all(box);
+    lv_obj_remove_flag(box, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(box, width, lv_font_get_line_height(font));
+    lv_obj_set_style_text_font(box, font, 0);
+    lv_obj_set_style_text_color(box, lv_color_hex(color), 0);
+    lv_obj_set_user_data(box, (void *)&s_scroll_tag);
+    lv_label_set_text(lv_label_create(box), text);
+    scroll_set(box, true, true);
+    return box;
+}
+
+void ui_label_scroll_align(lv_obj_t *box, lv_text_align_t align)
+{
+    lv_obj_set_style_text_align(box, align, 0);
+    scroll_set(box, lv_obj_has_flag(box, LV_OBJ_FLAG_USER_1), true);
 }
 
 static void more_hint_anim_cb(void *var, int32_t v)
@@ -535,6 +632,8 @@ static void menu_slide_to(ui_menu_t *m, int index)
     if (ui_menu_loops(m)) {
         delta = (int)lroundf(ui_wrap((float)delta, m->count));
     }
+    ui_scroll_activate(m->items[m->focus].obj, false);
+    ui_scroll_activate(m->items[index].obj, true);
     m->focus = index;
     m->focus_target += delta;
     s_slide_from = m->pos;
@@ -710,6 +809,9 @@ void ui_menu_end(ui_menu_t *m, lv_obj_t *focus)
     m->pos = (float)m->focus;
     s_theme->menu_build(m);
     s_theme->menu_place(m);
+    for (int i = 0; i < m->count; i++) {
+        ui_scroll_activate(m->items[i].obj, i == m->focus);
+    }
     screen_end(m->scr, target);
 }
 
@@ -1063,7 +1165,7 @@ static void show_pairing(void)
     }
     const int x = QR_PX + 2, w = UI_W - x - 2;
     lv_obj_t *name = ui_label_scroll(scr, &lv_font_montserrat_12, pal->dim, settings.ble_name, w);
-    lv_obj_set_style_text_align(name, LV_TEXT_ALIGN_CENTER, 0);
+    ui_label_scroll_align(name, LV_TEXT_ALIGN_CENTER);
     lv_obj_set_pos(name, x, 6);
     for (int half = 0; half < 2; half++) {
         char digits[8];

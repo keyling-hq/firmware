@@ -103,6 +103,7 @@ With the window focused:
 | `b` | next Bluetooth state |
 | `l` | "profile locked" message |
 | `1`-`9` | switch theme (as the phone would, through settings) |
+| `s` | scrolling text speed: 20, 30, 40 (default) or 60 px/s; the console shows it |
 | `Esc` | quit |
 
 The screen turns off after 15 s without input, as on the dongle; the first press only wakes it.
@@ -112,7 +113,7 @@ simulated where the UI shows their result.
 ## Screenshot scripts
 
 Saves a PNG into the `--out` folder for every `shot`, and prints the LVGL heap in use. The
-commands (button gestures, waits, firmware events, `theme ID`) are listed at the top of
+commands (button gestures, waits, firmware events, `theme ID`, `scroll PX_PER_S`) are listed at the top of
 `sim_main.c`. `scripts/tour.txt` is a short example; `scripts/themes.txt` shows every kind of
 screen in the current theme, so to compare themes run it once per theme, e.g. after a file that
 holds `theme device`.

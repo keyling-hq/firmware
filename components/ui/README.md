@@ -24,6 +24,10 @@ One button, the same everywhere:
 Hold items ("Hold to erase") fill while held and act once full; releasing early resets them.
 Security key prompts accept only the hold: double click does nothing there.
 
+Text that doesn't fit scrolls in a loop: on the focused item only, from its start each time focus
+arrives, after a 0.5 s pause. Titles and other text outside items scroll from when the screen
+opens. Text that fits never moves. Dialogs whose other items are hidden show a bobbing arrow.
+
 ## Writing an app
 
 `ui_app_example.c` is a complete example (enable `CONFIG_UI_APP_EXAMPLE`, or `-DSIM_EXAMPLES=ON`

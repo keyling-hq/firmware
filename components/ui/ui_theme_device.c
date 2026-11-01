@@ -93,12 +93,13 @@ static void launcher_build(ui_launcher_t *l)
     status_update(l);
 }
 
-/* Panels slide sideways, a screen width apart. */
+/* Panels slide sideways, a screen width apart; the name scrolls once its panel has arrived. */
 static void launcher_place(ui_launcher_t *l)
 {
     for (int i = 0; i < l->count && i < L_POS; i++) {
         float d = ui_wrap(i - l->pos, l->count);
         lv_obj_set_x(l->part[i], (int)lroundf(d * UI_W));
+        ui_scroll_activate(l->part[i], fabsf(d) < 0.01f);
     }
     int nearest = ((int)lroundf(l->pos) % l->count + l->count) % l->count;
     lv_label_set_text_fmt(l->part[L_POS], "< %d/%d >", nearest + 1, l->count);
@@ -119,7 +120,9 @@ static int select_w(const ui_menu_t *m)
 
 static void item_build(ui_menu_t *m, ui_item_t *item)
 {
-    item->part[I_FILL] = ui_box(item->obj, 0, ROW_H - 3, 0, 2, BG, 0);
+    if (item->hold) {
+        item->part[I_FILL] = ui_box(item->obj, 0, ROW_H - 3, 0, 2, BG, 0);
+    }
     char text[UI_ITEM_TEXT_LEN + 4];
     snprintf(text, sizeof(text), "%s%s", item->marked ? "*" : "", item->text);
     int value_w = item->value[0] ? 64 : 0;
@@ -127,7 +130,7 @@ static void item_build(ui_menu_t *m, ui_item_t *item)
     lv_obj_align(item->part[I_TEXT], LV_ALIGN_LEFT_MID, 4, 0);
     if (value_w) {
         item->part[I_VALUE] = ui_label_scroll(item->obj, &lv_font_unscii_8, FG, item->value, value_w - 4);
-        lv_obj_set_style_text_align(item->part[I_VALUE], LV_TEXT_ALIGN_RIGHT, 0);
+        ui_label_scroll_align(item->part[I_VALUE], LV_TEXT_ALIGN_RIGHT);
         lv_obj_align(item->part[I_VALUE], LV_ALIGN_RIGHT_MID, -4, 0);
     }
 }

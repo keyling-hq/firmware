@@ -88,7 +88,9 @@ static void menu_build(ui_menu_t *m)
     }
     for (int i = 0; i < m->count; i++) {
         ui_item_t *item = &m->items[i];
-        item->part[I_FILL] = ui_box(item->obj, 0, 15, 0, 2, ACCENT, 0);
+        if (item->hold) {
+            item->part[I_FILL] = ui_box(item->obj, 0, 15, 0, 2, ACCENT, 0);
+        }
         item->part[I_BAR] = ui_box(item->obj, 0, 0, 2, 15, ACCENT, 1);
         char text[UI_ITEM_TEXT_LEN + 8];
         snprintf(text, sizeof(text), "%s%s", item->marked ? LV_SYMBOL_OK " " : "", item->text);

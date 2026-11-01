@@ -105,8 +105,10 @@ static void header(ui_menu_t *m)
 
 static void item_build(ui_menu_t *m, ui_item_t *item)
 {
-    item->part[I_FILL] = ui_box(item->obj, 0, 0, 0, ROW_H, INK, 8);
-    lv_obj_set_style_bg_opa(item->part[I_FILL], LV_OPA_30, 0);
+    if (item->hold) {
+        item->part[I_FILL] = ui_box(item->obj, 0, 0, 0, ROW_H, INK, 8);
+        lv_obj_set_style_bg_opa(item->part[I_FILL], LV_OPA_30, 0);
+    }
     char text[UI_ITEM_TEXT_LEN + 8];
     snprintf(text, sizeof(text), "%s%s", item->marked ? LV_SYMBOL_OK " " : "", item->text);
     int value_w = item->value[0] ? 56 : 0;
@@ -114,7 +116,7 @@ static void item_build(ui_menu_t *m, ui_item_t *item)
     lv_obj_align(item->part[I_TEXT], LV_ALIGN_LEFT_MID, 8, 0);
     if (value_w) {
         item->part[I_VALUE] = ui_label_scroll(item->obj, &lv_font_montserrat_12, DIM, item->value, value_w);
-        lv_obj_set_style_text_align(item->part[I_VALUE], LV_TEXT_ALIGN_RIGHT, 0);
+        ui_label_scroll_align(item->part[I_VALUE], LV_TEXT_ALIGN_RIGHT);
         lv_obj_align(item->part[I_VALUE], LV_ALIGN_RIGHT_MID, -8, 0);
     }
 }

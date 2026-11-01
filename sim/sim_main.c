@@ -11,7 +11,7 @@
  *   pairing PASSKEY|off | passkey PASSKEY|off | update PERCENT|off
  *   fido other|register|sign_in|select|reset|pgp_sign|pgp_decrypt|pgp_auth|profile_reset [RP_ID]
  *   fido_done ok|fail | profiles main|phantom [main|phantom] [open|new|waiting] | locked
- *   theme ID (candy, device, quiet with SIM_EXAMPLES) | zoom N (PNG scale, default 4)
+ *   theme ID (candy, device, quiet with SIM_EXAMPLES) | scroll PX_PER_S | zoom N (PNG scale, default 4)
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,6 +20,7 @@
 #include "keymap.h"
 #include "settings.h"
 #include "ui.h"
+#include "ui_theme.h"
 #include "sim.h"
 
 #define WIDTH   160
@@ -124,6 +125,14 @@ static void set_theme(const char *id)
     settings_get(&settings);
     snprintf(settings.theme, sizeof(settings.theme), "%s", id);
     settings_set(&settings);
+    ui_reload_theme();
+}
+
+/* Rebuilds the current screen so its scrolling text uses the new speed. */
+static void set_scroll_speed(int px_per_s)
+{
+    ui_scroll_speed_set(px_per_s);
+    printf("scrolling text: %d px/s\n", ui_scroll_speed());
     ui_reload_theme();
 }
 
@@ -263,6 +272,8 @@ static void command(char *line)
         ui_show_profile_locked();
     } else if (strcmp(cmd, "theme") == 0 && a1) {
         set_theme(a1);
+    } else if (strcmp(cmd, "scroll") == 0 && a1) {
+        set_scroll_speed(atoi(a1));
     } else {
         fprintf(stderr, "unknown command: %s\n", cmd);
         exit(2);
@@ -323,9 +334,9 @@ static void run_window(void)
     }
     start_ui();
     printf("space: button | t: typing | p: pairing | f: security key request | x: deny it | u: USB | b: Bluetooth | "
-           "l: locked | 1-9: theme | esc: quit\n");
+           "l: locked | 1-9: theme | s: scroll speed | esc: quit\n");
 
-    bool was[8] = { 0 };
+    bool was[9] = { 0 };
     bool theme_was[9] = { 0 };
     bool typing = false, pairing = false, usb = true;
     int ble = UI_BLE_CONNECTED;
@@ -351,6 +362,16 @@ static void run_window(void)
             }
             if (key_edge('X', &was[7])) {
                 ui_show_fido_done(false);
+            }
+            if (key_edge('S', &was[8])) {
+                static const int speeds[] = { 20, 30, 40, 60 };
+                int next = speeds[0];
+                for (size_t i = 0; i + 1 < sizeof(speeds) / sizeof(speeds[0]); i++) {
+                    if (ui_scroll_speed() == speeds[i]) {
+                        next = speeds[i + 1];
+                    }
+                }
+                set_scroll_speed(next);
             }
             if (key_edge('U', &was[3])) {
                 ui_set_usb_state(usb = !usb);

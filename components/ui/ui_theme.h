@@ -134,8 +134,20 @@ const char *ui_tone_symbol(ui_tone_t tone);
 /** A plain object without the default theme's styles. */
 lv_obj_t *ui_box(lv_obj_t *parent, int x, int y, int w, int h, uint32_t bg, int radius);
 lv_obj_t *ui_label(lv_obj_t *parent, const lv_font_t *font, uint32_t color, const char *text);
-/** A one-line label of the given width that scrolls in a loop when the text doesn't fit. */
+/**
+ * A one-line label of the given width. Text that doesn't fit scrolls in a loop, from the start and
+ * after a short pause, while the label is active: labels inside items are active while their item
+ * is focused (the shared code switches them), others from creation. Color and font apply to the
+ * returned object.
+ */
 lv_obj_t *ui_label_scroll(lv_obj_t *parent, const lv_font_t *font, uint32_t color, const char *text, int width);
+/** Where a scrolling label's text sits when it fits (left by default). */
+void ui_label_scroll_align(lv_obj_t *label, lv_text_align_t align);
+/** Starts (from the beginning) or stops every scrolling label in tree, e.g. a launcher page. */
+void ui_scroll_activate(lv_obj_t *tree, bool active);
+/** Scrolling speed in pixels per second. */
+int ui_scroll_speed(void);
+void ui_scroll_speed_set(int px_per_s);
 /** A small down arrow that bobs: more items follow (dialogs, where only one item shows). */
 lv_obj_t *ui_more_hint(lv_obj_t *parent, uint32_t color);
 /** Text that scrolls up slowly in an endless loop inside the given area when it doesn't fit. */
