@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include "ui_priv.h"
 #include "usb_hid.h"
 
@@ -35,16 +36,17 @@ static void stop(void)
 
 static void show(void)
 {
-    lv_obj_t *list = ui_menu_begin("Mouse jiggler", NULL);
-    lv_obj_t *info = lv_label_create(list);
-    lv_label_set_text_fmt(info, "Moving every %u s", JIGGLE_INTERVAL_MS / 1000);
-    ui_menu_end(list, ui_hold_add(list, "Hold to stop", UI_HOLD_EXIT_MS, ui_app_exit));
+    char message[32];
+    snprintf(message, sizeof(message), "Moving every %u s", JIGGLE_INTERVAL_MS / 1000);
+    ui_menu_t *dialog = ui_dialog_begin("Mouse jiggler", message, NULL);
+    ui_menu_end(dialog, ui_hold_add(dialog, "Hold to stop", UI_HOLD_EXIT_MS, ui_app_exit));
 }
 
 const ui_app_t ui_app_jiggler = {
     .id = "jiggler",
     .name = "Jiggler",
     .icon = LV_SYMBOL_SHUFFLE,
+    .color = 0xFF6B6B,
     .start = start,
     .show = show,
     .stop = stop,

@@ -100,6 +100,14 @@ static void set_layout(settings_t *settings, int index)
     }
 }
 
+static void set_theme(settings_t *settings, int index)
+{
+    const char *id = ui_theme_id(index);
+    if (id) {
+        strlcpy(settings->theme, id, sizeof(settings->theme));
+    }
+}
+
 static void set_speed(settings_t *settings, int index)
 {
     if (index >= 0 && (size_t)index < settings_speed_preset_count) {
@@ -173,6 +181,9 @@ static void ui_action_cb(ui_action_t action, int arg)
         break;
     case UI_ACTION_SET_SPEED:
         update_settings(set_speed, arg);
+        break;
+    case UI_ACTION_SET_THEME:
+        update_settings(set_theme, arg);
         break;
     case UI_ACTION_ABORT_TYPING:
         protocol_abort();

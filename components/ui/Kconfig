@@ -1,0 +1,17 @@
+menu "Keyling UI"
+
+    config UI_THEME_EXAMPLE
+        bool "Example theme (Quiet)"
+        default n
+        help
+            Adds ui_theme_example.c to the themes in Settings. It is the starting point for new
+            themes: copy it, rename the theme, and add it to s_themes in ui.c.
+
+    config UI_APP_EXAMPLE
+        bool "Example app"
+        default n
+        help
+            Adds ui_app_example.c to the launcher. It uses every building block of the app API
+            and is the starting point for new apps.
+
+endmenu

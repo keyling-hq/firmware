@@ -3,8 +3,6 @@
  *
  *   keyling_ui_sim                         window, the space bar is the button
  *   keyling_ui_sim --out DIR SCRIPT...     headless: runs the scripts, saves PNGs into DIR
- *   keyling_ui_sim --mockups               design concepts from mockups.c in a window
- *   keyling_ui_sim --mockups --out DIR     the same, one contact sheet PNG per concept
  *   --zoom N                               window scale (default 4)
  *
  * Script commands, one per line or separated by ';' ('#' starts a comment):
@@ -13,7 +11,7 @@
  *   pairing PASSKEY|off | passkey PASSKEY|off | update PERCENT|off
  *   fido other|register|sign_in|select|reset|pgp_sign|pgp_decrypt|pgp_auth|profile_reset [RP_ID]
  *   fido_done ok|fail | profiles main|phantom [main|phantom] [open|new|waiting] | locked
- *   zoom N (PNG scale, default 4)
+ *   theme ID (candy, device, quiet with SIM_EXAMPLES) | zoom N (PNG scale, default 4)
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -104,6 +102,10 @@ static void apply_action(ui_action_t action, int arg)
         s_active = s_default = arg;
         ui_set_profiles(s_active, s_default, s_phantom);
         break;
+    case UI_ACTION_SET_THEME:
+        strncpy(settings.theme, ui_theme_id(arg), sizeof(settings.theme) - 1);
+        settings_set(&settings);
+        break;
     case UI_ACTION_RESET_PROFILE:
         if (arg == UI_PROFILE_PHANTOM) {
             s_phantom = UI_PHANTOM_NEW;
@@ -113,6 +115,16 @@ static void apply_action(ui_action_t action, int arg)
     default:
         break;
     }
+}
+
+/* As the phone would change it: through settings, then the UI reloads it. */
+static void set_theme(const char *id)
+{
+    settings_t settings;
+    settings_get(&settings);
+    snprintf(settings.theme, sizeof(settings.theme), "%s", id);
+    settings_set(&settings);
+    ui_reload_theme();
 }
 
 static void run_once(void)
@@ -143,6 +155,10 @@ static void press(bool down)
 static void shot(const char *name)
 {
     lv_refr_now(NULL);
+    lv_mem_monitor_t mon;
+    lv_mem_monitor(&mon);
+    printf("%s: LVGL heap %u used, %u at most, of %u\n", name, (unsigned)(mon.total_size - mon.free_size),
+           (unsigned)mon.max_used, (unsigned)mon.total_size);
     char path[512];
     snprintf(path, sizeof(path), "%s/%s.png", s_out, name);
     if (!sim_png_write(path, s_fb, WIDTH, HEIGHT, s_zoom, sim_brightness() == 0)) {
@@ -245,6 +261,8 @@ static void command(char *line)
         ui_set_profiles(s_active, s_default, s_phantom);
     } else if (strcmp(cmd, "locked") == 0) {
         ui_show_profile_locked();
+    } else if (strcmp(cmd, "theme") == 0 && a1) {
+        set_theme(a1);
     } else {
         fprintf(stderr, "unknown command: %s\n", cmd);
         exit(2);
@@ -305,9 +323,10 @@ static void run_window(void)
     }
     start_ui();
     printf("space: button | t: typing | p: pairing | f: security key request | u: USB | b: Bluetooth | "
-           "l: locked | esc: quit\n");
+           "l: locked | 1-9: theme | esc: quit\n");
 
     bool was[8] = { 0 };
+    bool theme_was[9] = { 0 };
     bool typing = false, pairing = false, usb = true;
     int ble = UI_BLE_CONNECTED;
     while (sim_window_open()) {
@@ -315,6 +334,11 @@ static void run_window(void)
         sim_button_set(focused && sim_key_down(SIM_KEY_SPACE), sim_clock_ms());
         sim_button_tick(sim_clock_ms());
         if (focused) {
+            for (int i = 0; i < 9 && ui_theme_id(i); i++) {
+                if (key_edge('1' + i, &theme_was[i])) {
+                    set_theme(ui_theme_id(i));
+                }
+            }
             if (key_edge('T', &was[0])) {
                 ui_show_typing(typing = !typing);
             }
@@ -344,49 +368,11 @@ static void run_window(void)
     }
 }
 
-static void run_mockups_window(void)
-{
-    if (!sim_window_create(WIDTH, HEIGHT, s_zoom)) {
-        fprintf(stderr, "cannot create the window\n");
-        exit(1);
-    }
-    sim_mockups_start();
-    bool was[5] = { 0 };
-    while (sim_window_open()) {
-        uint32_t now = sim_clock_ms();
-        bool focused = sim_window_focused();
-        lv_lock();
-        sim_button_set(focused && sim_key_down(SIM_KEY_SPACE), now);
-        sim_button_tick(now);
-        if (focused) {
-            for (int c = 0; c < 3; c++) {
-                if (key_edge('1' + c, &was[c])) {
-                    sim_mockups_set_concept(c);
-                }
-            }
-            if (key_edge('F', &was[3])) {
-                sim_mockups_fido();
-            }
-            if (key_edge(SIM_KEY_ESC, &was[4])) {
-                lv_unlock();
-                break;
-            }
-        }
-        sim_mockups_poll(now);
-        lv_unlock();
-        lv_timer_handler();
-        sim_sleep_ms(STEP_MS);
-    }
-}
-
 int main(int argc, char **argv)
 {
     int first_script = argc;
-    bool mockups = false;
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--mockups") == 0) {
-            mockups = true;
-        } else if (strcmp(argv[i], "--out") == 0 && i + 1 < argc) {
+        if (strcmp(argv[i], "--out") == 0 && i + 1 < argc) {
             s_out = argv[++i];
             s_headless = true;
         } else if (strcmp(argv[i], "--zoom") == 0 && i + 1 < argc) {
@@ -401,11 +387,7 @@ int main(int argc, char **argv)
     lv_init();
     lv_tick_set_cb(tick_cb);
     if (!s_headless) {
-        if (mockups) {
-            run_mockups_window();
-        } else {
-            run_window();
-        }
+        run_window();
         return 0;
     }
 
@@ -414,10 +396,6 @@ int main(int argc, char **argv)
     lv_display_set_color_format(disp, LV_COLOR_FORMAT_RGB565);
     lv_display_set_buffers(disp, s_fb, NULL, sizeof(s_fb), LV_DISPLAY_RENDER_MODE_DIRECT);
     lv_display_set_flush_cb(disp, flush_cb);
-    if (mockups) {
-        sim_mockups_render(s_out, s_fb, 3);
-        return 0;
-    }
     start_ui();
     advance(100);
     for (int i = first_script; i < argc; i++) {

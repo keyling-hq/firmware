@@ -17,6 +17,7 @@ Runs on the LilyGo T-Dongle-S3 (ESP32-S3). It is also a FIDO2/U2F security key, 
   Release firmware only accepts Bluetooth updates signed with the same key.
 - UI simulator: `sim/` runs the on-screen UI on Windows or Linux, in a window or as scripted screenshots;
   see [sim/README.md](sim/README.md).
+- On-screen UI: apps and themes, and how to add them: [components/ui/README.md](components/ui/README.md).
 
 ## License
 
