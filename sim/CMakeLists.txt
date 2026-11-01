@@ -11,7 +11,7 @@ if(NOT EXISTS ${LVGL}/lvgl.h)
 endif()
 
 # CONFIG_LV_* from the firmware's sdkconfig, with the OS and display driver of the simulator.
-set(SDKCONFIG ${FW}/sdkconfig.hid)
+set(SDKCONFIG ${FW}/sdkconfig.hid CACHE FILEPATH "Firmware sdkconfig the simulator reads its LVGL and UI settings from")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${SDKCONFIG})
 file(STRINGS ${SDKCONFIG} lines REGEX "^CONFIG_LV_[A-Z0-9_]+=")
 set(conf "#pragma once\n")
@@ -69,8 +69,6 @@ add_executable(keyling_ui_sim
     ${FW}/components/ui/ui_nav.c
     ${FW}/components/ui/ui_input.c
     ${FW}/components/ui/ui_settings.c
-    ${FW}/components/ui/ui_jiggler.c
-    ${FW}/components/ui/ui_profiles.c
     ${FW}/components/ui/ui_theme_candy.c
     ${FW}/components/ui/ui_theme_device.c
     ${FW}/components/keymap/keymap.c
@@ -82,14 +80,39 @@ add_executable(keyling_ui_sim
     sim_window.c
 )
 
-# The example theme and app, as CONFIG_UI_THEME_EXAMPLE and CONFIG_UI_APP_EXAMPLE do in the firmware.
-option(SIM_EXAMPLES "Build the example theme and app" OFF)
+# The apps and themes the firmware's sdkconfig selects (components/ui/Kconfig, with its defaults
+# where the sdkconfig doesn't have the option yet). SIM_EXAMPLES adds the template app and theme.
+set(UI_APP_JIGGLER ON)
+set(UI_APP_PROFILES ON)
+set(UI_APP_EXAMPLE OFF)
+set(UI_THEME_EXAMPLE OFF)
+file(STRINGS ${SDKCONFIG} ui_lines REGEX "CONFIG_UI_[A-Z_]+")
+foreach(line IN LISTS ui_lines)
+    if(line MATCHES "^CONFIG_(UI_[A-Z_]+)=y$")
+        set(${CMAKE_MATCH_1} ON)
+    elseif(line MATCHES "^# CONFIG_(UI_[A-Z_]+) is not set$")
+        set(${CMAKE_MATCH_1} OFF)
+    endif()
+endforeach()
+option(SIM_EXAMPLES "Build the template app and the example theme" OFF)
 if(SIM_EXAMPLES)
-    target_sources(keyling_ui_sim PRIVATE
-        ${FW}/components/ui/ui_theme_example.c
-        ${FW}/components/ui/ui_app_example.c)
-    target_compile_definitions(keyling_ui_sim PRIVATE CONFIG_UI_THEME_EXAMPLE=1 CONFIG_UI_APP_EXAMPLE=1)
+    set(UI_APP_EXAMPLE ON)
+    set(UI_THEME_EXAMPLE ON)
 endif()
+set(ui_optional
+    UI_APP_JIGGLER ui_jiggler.c
+    UI_APP_PROFILES ui_profiles.c
+    UI_APP_EXAMPLE ui_app_example.c
+    UI_THEME_EXAMPLE ui_theme_example.c)
+while(ui_optional)
+    list(POP_FRONT ui_optional option file)
+    if(${option})
+        target_sources(keyling_ui_sim PRIVATE ${FW}/components/ui/${file})
+        target_compile_definitions(keyling_ui_sim PRIVATE CONFIG_${option}=1)
+    endif()
+endwhile()
+message(STATUS "apps: jiggler ${UI_APP_JIGGLER}, profiles ${UI_APP_PROFILES}, template ${UI_APP_EXAMPLE}; "
+               "example theme ${UI_THEME_EXAMPLE}")
 target_include_directories(keyling_ui_sim PRIVATE
     include
     ${FW}/components/ui

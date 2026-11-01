@@ -2,6 +2,9 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#if __has_include("sdkconfig.h")
+#include "sdkconfig.h"
+#endif
 #include "lvgl.h"
 #include "ui.h"
 #include "ui_options.h"
@@ -32,9 +35,13 @@ typedef struct {
                                    changed; menus rebuild by themselves */
 } ui_app_t;
 
-extern const ui_app_t ui_app_jiggler;
 extern const ui_app_t ui_app_settings;
+#if CONFIG_UI_APP_JIGGLER
+extern const ui_app_t ui_app_jiggler;
+#endif
+#if CONFIG_UI_APP_PROFILES
 extern const ui_app_t ui_app_profiles;
+#endif
 #if CONFIG_UI_APP_EXAMPLE
 extern const ui_app_t ui_app_example;
 #endif

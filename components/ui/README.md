@@ -58,26 +58,46 @@ About is a scrolling page with the firmware version, profile, phone and USB conn
 name, security key status and the device's security state (keys, secure boot, flash encryption,
 signed updates).
 
+### Choosing the apps in a build
+
+Each app except Settings (pairing and factory reset are there) has a Kconfig option under
+"Keyling UI" → "Apps":
+
+| Option | App | Default |
+|---|---|---|
+| `CONFIG_UI_APP_JIGGLER` | Jiggler | on |
+| `CONFIG_UI_APP_PROFILES` | Profiles (without it, profiles still work from the phone) | on |
+| `CONFIG_UI_APP_EXAMPLE` | Template: every kind of menu option, doing nothing | off |
+
+Set them in `sdkconfig.defaults` (e.g. `# CONFIG_UI_APP_JIGGLER is not set`) or with
+`pio run -e hid -t menuconfig`. An existing `sdkconfig.hid` keeps its values over the defaults:
+change it there too, or delete it to start again from the defaults (a full rebuild). The
+simulator builds the same apps as `sdkconfig.hid`.
+
 ## Writing an app
 
-`ui_app_example.c` (a counter) is a complete example that uses every kind of option (enable
-`CONFIG_UI_APP_EXAMPLE`, or `-DSIM_EXAMPLES=ON` in the simulator). To add an app:
+`ui_app_example.c` (the Template app) uses every kind of option and does nothing but log, with a
+comment on each (enable `CONFIG_UI_APP_EXAMPLE`, or `-DSIM_EXAMPLES=ON` in the simulator). To add
+an app:
 
 1. Copy it, and give the `ui_app_t` its own `id` (stable, reported to the phone), `name`, `icon`
    (an `LV_SYMBOL_*`) and `color` (used by themes that color apps).
-2. Add the file to `CMakeLists.txt` and the app to `s_apps` in `ui.c` (launcher order).
+2. Add a Kconfig option for it (`Kconfig`, under "Apps"), the file to `CMakeLists.txt` under that
+   option, and the app to `s_apps` in `ui.c` (launcher order) and `ui_priv.h`. In the simulator,
+   add it to `ui_optional` in `sim/CMakeLists.txt`.
 3. Describe its menus as option tables and point `menu` at the first one:
 
 ```c
 static const ui_option_t s_main[] = {
-    UI_ACTION("Add", add),                  /* runs add(arg) when held */
-    UI_CHOICE("Step", &s_steps),            /* shows the current one, opens the list */
-    UI_SUBMENU("Advanced", &s_advanced_menu),
-    UI_CONFIRM("Reset", &s_reset),          /* title, message, Cancel and a hold */
-    UI_PAGE("Help", help),                  /* fills a scrolling text page */
+    UI_ACTION("Action", action),            /* runs action(arg) when held */
+    UI_CHOICE("Choice", &s_color_choice),   /* shows the current one, opens the list */
+    UI_TOGGLE("Extra", extra_get, extra_set),
+    UI_SUBMENU("Nested", &s_nested_menu),
+    UI_CONFIRM("Confirm", &s_confirm),      /* title, message, Cancel and a hold */
+    UI_PAGE("Page", page),                  /* fills a scrolling text page */
     UI_EXIT("Hold to exit"),
 };
-static UI_MENU(s_main_menu, "Counter", s_main);
+static UI_MENU(s_main_menu, "Template", s_main);
 ```
 
 | Option | Does |

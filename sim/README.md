@@ -29,8 +29,9 @@ In PowerShell, once per window:
 $env:PATH = "C:\msys64\mingw64\bin;$env:PATH"
 ```
 
-Configure once (add `-DSIM_EXAMPLES=ON` for the example theme and app, see
-`components/ui/README.md`):
+Configure once. The simulator builds the apps `sdkconfig.hid` selects; add `-DSIM_EXAMPLES=ON`
+for the Template app and the example theme (`components/ui/README.md`), or
+`-DSDKCONFIG=path/to/sdkconfig` to read another one:
 
 ```
 cmake -S sim -B sim/build -G Ninja -DCMAKE_BUILD_TYPE=Release

@@ -37,9 +37,14 @@ typedef enum {
     OVERLAY_UPDATE,
 } overlay_t;
 
+/* Launcher order. Apps other than Settings can be left out of a build (Kconfig, "Keyling UI"). */
 static const ui_app_t *const s_apps[] = {
+#if CONFIG_UI_APP_JIGGLER
     &ui_app_jiggler,
+#endif
+#if CONFIG_UI_APP_PROFILES
     &ui_app_profiles,
+#endif
     &ui_app_settings,
 #if CONFIG_UI_APP_EXAMPLE
     &ui_app_example,

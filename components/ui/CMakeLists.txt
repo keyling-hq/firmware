@@ -1,10 +1,15 @@
-set(srcs "ui.c" "ui_nav.c" "ui_input.c" "ui_settings.c" "ui_jiggler.c" "ui_profiles.c"
-    "ui_theme_candy.c" "ui_theme_device.c")
-if(CONFIG_UI_THEME_EXAMPLE)
-    list(APPEND srcs "ui_theme_example.c")
+set(srcs "ui.c" "ui_nav.c" "ui_input.c" "ui_settings.c" "ui_theme_candy.c" "ui_theme_device.c")
+if(CONFIG_UI_APP_JIGGLER)
+    list(APPEND srcs "ui_jiggler.c")
+endif()
+if(CONFIG_UI_APP_PROFILES)
+    list(APPEND srcs "ui_profiles.c")
 endif()
 if(CONFIG_UI_APP_EXAMPLE)
     list(APPEND srcs "ui_app_example.c")
+endif()
+if(CONFIG_UI_THEME_EXAMPLE)
+    list(APPEND srcs "ui_theme_example.c")
 endif()
 
 idf_component_register(
