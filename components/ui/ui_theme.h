@@ -157,11 +157,10 @@ lv_obj_t *ui_more_hint(lv_obj_t *parent, uint32_t color);
 lv_obj_t *ui_ticker(lv_obj_t *parent, int x, int y, int w, int h, const lv_font_t *font, uint32_t color,
                     const char *text);
 /**
- * The Bluetooth symbol's color right now: in step with the status LED (its color, fading to dim),
- * solid blue once connected. The shared code calls status_update whenever it changes.
+ * The Bluetooth symbol's color right now, for themes in color: in step with the status LED (its
+ * color, fading to dim), solid blue once connected. The shared code calls status_update whenever
+ * it changes. Monochrome themes show status.ble their own way instead.
  */
 uint32_t ui_ble_color(const ui_status_t *s);
-/** False while ui_ble_color() is the palette's dim color (LED dark, not connected). */
-bool ui_ble_lit(const ui_status_t *s);
 /** The USB symbol: good while a computer has set the dongle up, dim on power alone. */
 uint32_t ui_usb_color(const ui_status_t *s);

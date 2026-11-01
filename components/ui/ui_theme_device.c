@@ -58,16 +58,14 @@ static void status_bar(lv_obj_t *scr, const char *title, lv_obj_t **ble, lv_obj_
 
 /* ---- launcher ---------------------------------------------------------------------------- */
 
-/* On the black bar: Bluetooth in the LED's colors (faint orange while dark), USB faint unless set up. */
+/* Monochrome, so no LED colors: a symbol is full while connected and faint otherwise. */
 static void status_update(ui_launcher_t *l)
 {
     char title[24];
     snprintf(title, sizeof(title), "%s%s", l->status.profile, l->status.locked ? " LOCKED" : "");
     upper(title, sizeof(title), title);
     lv_label_set_text(l->part[L_TITLE], title);
-    bool lit = ui_ble_lit(&l->status);
-    lv_obj_set_style_text_color(l->part[L_BLE], lv_color_hex(lit ? ui_ble_color(&l->status) : BG), 0);
-    lv_obj_set_style_opa(l->part[L_BLE], lit ? LV_OPA_COVER : LV_OPA_30, 0);
+    lv_obj_set_style_opa(l->part[L_BLE], l->status.ble == UI_BLE_CONNECTED ? LV_OPA_COVER : LV_OPA_30, 0);
     lv_obj_set_style_opa(l->part[L_USB], l->status.usb ? LV_OPA_COVER : LV_OPA_30, 0);
 }
 

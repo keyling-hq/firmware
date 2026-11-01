@@ -45,11 +45,13 @@ opens. Text that fits never moves. Dialogs whose other items are hidden show a b
   mirroring, so it costs nothing); saved in settings and applied at start.
 - **Themes:** Settings → Theme switches at once and is saved; `ui_reload_theme()` applies a theme
   changed from outside the UI (e.g. the phone).
-- **Status symbols** on the launcher: Bluetooth shows what the status LED shows, in step with it
-  (its color, fading as the LED fades: the blue pulse while not paired, orange blinks while
-  pairing, the green flash on connecting), then solid blue while connected and dim while the
-  paired phone is away. USB is lit while a computer has set the dongle up; dim means power only
-  (a charger, or a computer that is off or asleep), so nothing receives keystrokes.
+- **Status symbols** on the launcher. In color themes (Candy, Quiet), Bluetooth shows what the
+  status LED shows, in step with it (its color, fading as the LED fades: the blue pulse while not
+  paired, orange blinks while pairing, the green flash on connecting), then solid blue while
+  connected and dim while the paired phone is away. Monochrome themes (Device) show it full while
+  connected and faint otherwise. USB is lit while a computer has set the dongle up; dim or faint
+  means power only (a charger, or a computer that is off or asleep), so nothing receives
+  keystrokes.
 
 ## Built-in apps
 
@@ -179,7 +181,8 @@ distance from the middle. Helpers in `ui_theme.h`:
 | `ui_scroll_activate` | starts or stops scrolling text in a subtree (the shared code does it for items) |
 | `ui_ticker` | a text page scrolling up slowly in a loop |
 | `ui_more_hint` | the bobbing arrow for dialogs with hidden items |
-| `ui_tone_color`, `ui_tone_symbol`, `ui_ble_color`, `ui_usb_color` | colors and symbols by state |
+| `ui_tone_color`, `ui_tone_symbol`, `ui_usb_color` | colors and symbols by state |
+| `ui_ble_color` | the Bluetooth symbol in step with the status LED, for themes in color |
 
 Fonts must be enabled in `sdkconfig.defaults` (`CONFIG_LV_FONT_*`). Screens have a 48 KB LVGL heap,
 shared by the screen being left and the one being built; the simulator prints its use with every

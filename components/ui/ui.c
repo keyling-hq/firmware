@@ -228,11 +228,6 @@ uint32_t ui_ble_color(const ui_status_t *s)
     return lv_color_to_u32(ui_mix(s_theme->pal.dim, full, (float)peak / STATUS_LED_PEAK)) & 0xFFFFFF;
 }
 
-bool ui_ble_lit(const ui_status_t *s)
-{
-    return ui_ble_color(s) != s_theme->pal.dim;
-}
-
 uint32_t ui_usb_color(const ui_status_t *s)
 {
     return s->usb ? s_theme->pal.good : s_theme->pal.dim;
