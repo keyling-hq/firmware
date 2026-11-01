@@ -17,7 +17,7 @@ One button, the same everywhere:
 
 | Gesture | Lists and dialogs | Launcher |
 |---|---|---|
-| Click | next item (lists loop from three items up) | next app |
+| Click | next item; after the last comes the first | next app |
 | Double click | back (or screen off where there is no back) | screen off |
 | Hold | activate the focused item | open the app |
 

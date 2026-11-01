@@ -76,10 +76,15 @@ static void menu_build(ui_menu_t *m)
     if (m->kind == UI_MENU_PROMPT) {
         lv_obj_set_pos(ui_label_scroll(m->scr, &lv_font_montserrat_20, INK, m->subtitle, UI_W - 16), 8, 22);
     } else if (m->big[0]) {
-        char big[sizeof(m->big) + 8];
-        snprintf(big, sizeof(big), "%s%s%s", ui_tone_symbol(m->tone), m->tone ? " " : "", m->big);
-        m->big_label = ui_label(m->scr, &lv_font_montserrat_20, ui_tone_color(m->tone), big);
-        lv_obj_align(m->big_label, LV_ALIGN_CENTER, 0, 4);
+        lv_obj_t *row = ui_box(m->scr, 0, 30, UI_W, 26, BG, 0);
+        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(row, 6, 0);
+        if (m->tone) {
+            ui_label(row, &lv_font_montserrat_20, ui_tone_color(m->tone), ui_tone_symbol(m->tone));
+        }
+        m->big_label = ui_label_scroll(row, &lv_font_montserrat_20, ui_tone_color(m->tone), m->big, UI_W - 44);
+        ui_label_scroll_fit(m->big_label);
     } else if (m->message[0]) {
         lv_obj_set_pos(ui_label_scroll(m->scr, &lv_font_montserrat_12, DIM, m->message, UI_W - 16), 8, 21);
     }

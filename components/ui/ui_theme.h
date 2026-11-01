@@ -58,7 +58,7 @@ struct ui_menu {
     int focus;
     float pos;                      /* towards focus; unwrapped, use ui_menu_offset() */
     float focus_target;             /* where pos is heading, unwrapped */
-    lv_obj_t *big_label;            /* set by the theme where it shows big, updated in place */
+    lv_obj_t *big_label;            /* set by the theme where it shows big; ui_label_set_text() updates it */
     lv_obj_t *part[UI_THEME_PARTS];
     ui_screen_fn_t fn;              /* the screen function that built it, for focus memory */
 };
@@ -143,6 +143,10 @@ lv_obj_t *ui_label(lv_obj_t *parent, const lv_font_t *font, uint32_t color, cons
 lv_obj_t *ui_label_scroll(lv_obj_t *parent, const lv_font_t *font, uint32_t color, const char *text, int width);
 /** Where a scrolling label's text sits when it fits (left by default). */
 void ui_label_scroll_align(lv_obj_t *label, lv_text_align_t align);
+/** Makes a scrolling label as narrow as its text, up to its width (e.g. beside a symbol). */
+void ui_label_scroll_fit(lv_obj_t *label);
+/** Sets the text of a label from ui_label() or ui_label_scroll(). */
+void ui_label_set_text(lv_obj_t *label, const char *text);
 /** Starts (from the beginning) or stops every scrolling label in tree, e.g. a launcher page. */
 void ui_scroll_activate(lv_obj_t *tree, bool active);
 /** Scrolling speed in pixels per second. */

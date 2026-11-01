@@ -165,9 +165,8 @@ static void result_build(ui_menu_t *m)
     if (m->tone) {
         ui_label(d, &lv_font_montserrat_20, BG, ui_tone_symbol(m->tone));
     }
-    m->big_label = ui_label(d, &lv_font_unscii_16, BG, m->big);
-    lv_obj_set_style_max_width(m->big_label, UI_W - (m->tone ? 44 : 16), 0);
-    lv_label_set_long_mode(m->big_label, LV_LABEL_LONG_MODE_SCROLL);
+    m->big_label = ui_label_scroll(d, &lv_font_unscii_16, BG, m->big, UI_W - (m->tone ? 44 : 16));
+    ui_label_scroll_fit(m->big_label);
     if (m->message[0]) {
         lv_obj_align(ui_label(m->scr, &lv_font_unscii_8, FG, m->message), LV_ALIGN_BOTTOM_LEFT, 5, -4);
     }

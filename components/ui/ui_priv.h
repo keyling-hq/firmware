@@ -63,8 +63,8 @@ void ui_theme_select(size_t index);
 
 /*
  * Menus: a title and a list of items. Click moves to the next item, double click runs back
- * (NULL turns the screen off), hold activates the focused item. Lists loop when they have three
- * items or more.
+ * (NULL turns the screen off), hold activates the focused item. Lists and dialogs loop: after the
+ * last item comes the first.
  *
  * A dialog is a menu with a message and one or two items (e.g. Cancel and "Hold to erase").
  *

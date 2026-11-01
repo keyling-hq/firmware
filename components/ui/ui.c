@@ -19,7 +19,7 @@ static const char *TAG = "ui";
 #define TICKER_PX_PER_S     14
 #define TICKER_PAUSE_MS     1500
 #define TICKER_GAP          24
-#define SCROLL_PX_PER_S     40
+#define SCROLL_PX_PER_S     60
 #define SCROLL_PAUSE_MS     500
 #define SCROLL_GAP          24
 /* Waits for the lock: dropping these would leave a request without its prompt. */
@@ -157,7 +157,7 @@ float ui_wrap(float x, int n)
 
 bool ui_menu_loops(const ui_menu_t *m)
 {
-    return m->kind == UI_MENU_LIST && m->count >= 3;
+    return (m->kind == UI_MENU_LIST || m->kind == UI_MENU_DIALOG) && m->count >= 2;
 }
 
 float ui_menu_offset(const ui_menu_t *m, int i)
@@ -283,6 +283,11 @@ static void scroll_set(lv_obj_t *box, bool active, bool force)
     lv_text_get_size(&size, lv_label_get_text(text), lv_obj_get_style_text_font(box, 0), 0, 0, LV_COORD_MAX,
                      LV_TEXT_FLAG_NONE);
     int32_t width = lv_obj_get_style_width(box, 0);
+    if (lv_obj_has_flag(box, LV_OBJ_FLAG_USER_2)) {
+        int32_t max = lv_obj_get_style_max_width(box, 0);
+        width = size.x < max ? size.x : max;
+        lv_obj_set_width(box, width);
+    }
     if (size.x <= width) {
         lv_text_align_t align = lv_obj_get_style_text_align(box, 0);
         lv_obj_set_x(text, align == LV_TEXT_ALIGN_RIGHT ? width - size.x
@@ -342,6 +347,27 @@ void ui_label_scroll_align(lv_obj_t *box, lv_text_align_t align)
 {
     lv_obj_set_style_text_align(box, align, 0);
     scroll_set(box, lv_obj_has_flag(box, LV_OBJ_FLAG_USER_1), true);
+}
+
+void ui_label_scroll_fit(lv_obj_t *box)
+{
+    lv_obj_set_style_max_width(box, lv_obj_get_style_width(box, 0), 0);
+    lv_obj_add_flag(box, LV_OBJ_FLAG_USER_2);
+    scroll_set(box, lv_obj_has_flag(box, LV_OBJ_FLAG_USER_1), true);
+}
+
+void ui_label_set_text(lv_obj_t *label, const char *text)
+{
+    if (lv_obj_get_user_data(label) != &s_scroll_tag) {
+        lv_label_set_text(label, text);
+        return;
+    }
+    lv_label_set_text(lv_obj_get_child(label, 0), text);
+    lv_obj_t *copy = lv_obj_get_child(label, 1);
+    if (copy) {
+        lv_label_set_text(copy, text);
+    }
+    scroll_set(label, lv_obj_has_flag(label, LV_OBJ_FLAG_USER_1), true);
 }
 
 static void more_hint_anim_cb(void *var, int32_t v)
@@ -631,6 +657,10 @@ static void menu_slide_to(ui_menu_t *m, int index)
     int delta = index - m->focus;
     if (ui_menu_loops(m)) {
         delta = (int)lroundf(ui_wrap((float)delta, m->count));
+        /* Halfway round either way (two items): a click moves forward. */
+        if (2 * delta == -m->count) {
+            delta = -delta;
+        }
     }
     ui_scroll_activate(m->items[m->focus].obj, false);
     ui_scroll_activate(m->items[index].obj, true);
@@ -1194,7 +1224,9 @@ static void show_passkey(void)
 static void set_update_label(void)
 {
     if (s_update_label) {
-        lv_label_set_text_fmt(s_update_label, "%u%%", s_update_percent);
+        char text[8];
+        snprintf(text, sizeof(text), "%u%%", s_update_percent);
+        ui_label_set_text(s_update_label, text);
     }
 }
 
