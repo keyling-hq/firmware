@@ -6,13 +6,14 @@ from `components/ui` directly, so a change shows up in the simulator and in the 
 Firmware services (settings, Bluetooth, USB, security key) are stand-ins in `sim_platform.c` and
 `sim_main.c`. Colors on the dongle's panel differ somewhat from a PC screen.
 
-Two modes:
+Modes:
 
 - **Window:** the 160×80 screen at 4× (`--zoom N` to change), the space bar is the button.
-- **Screenshots:** runs a script of button presses and firmware events on a simulated clock and
-  saves PNGs. The same script gives the same images on every run and every OS.
+- **Screenshots** (`--out DIR SCRIPT...`): runs a script of button presses and firmware events on
+  a simulated clock and saves PNGs. The same script gives the same images on every run and every OS.
+- **Design mockups** (`--mockups --out DIR`): renders design concepts, see below.
 
-Both need a firmware build done once, for LVGL in `managed_components`. The commands below run from
+All need a firmware build done once, for LVGL in `managed_components`. The commands below run from
 the `firmware` folder.
 
 ## Windows
@@ -105,6 +106,22 @@ With the window focused:
 The screen turns off after 15 s without input, as on the dongle; the first press only wakes it.
 Actions the firmware would carry out (pairing, profiles, settings) are printed to the console and
 simulated where the UI shows their result.
+
+## Design mockups
+
+`mockups.c` holds design concepts: static screens drawn with plain LVGL, separate from
+`components/ui`, for comparing looks before building one into the real UI. `--mockups` renders
+each concept as one contact sheet (its screens in a 2×2 grid, at 3×) into the `--out` folder:
+
+```
+sim\build\keyling_ui_sim.exe --mockups --out sim\shots
+```
+
+On Linux: `sim/build-linux/keyling_ui_sim --mockups --out sim/shots`.
+
+Besides the firmware's fonts, mockups can use Montserrat 10, 16 and 20 and the UNSCII 8 and 16
+pixel fonts. These are enabled in the simulator only: a design that uses one needs it enabled in
+the firmware's sdkconfig too.
 
 ## Screenshot scripts
 

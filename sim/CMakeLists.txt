@@ -27,6 +27,13 @@ foreach(line IN LISTS lines)
     endif()
     string(APPEND conf "#define ${name} ${value}\n")
 endforeach()
+# Fonts for design mockups only: a design that uses one needs it enabled in the firmware too.
+string(APPEND conf
+    "#define CONFIG_LV_FONT_MONTSERRAT_10 1\n"
+    "#define CONFIG_LV_FONT_MONTSERRAT_16 1\n"
+    "#define CONFIG_LV_FONT_MONTSERRAT_20 1\n"
+    "#define CONFIG_LV_FONT_UNSCII_8 1\n"
+    "#define CONFIG_LV_FONT_UNSCII_16 1\n")
 if(NOT WIN32)
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(SDL2 IMPORTED_TARGET sdl2)
@@ -77,6 +84,7 @@ add_executable(keyling_ui_sim
     sim_platform.c
     sim_png.c
     sim_window.c
+    mockups.c
 )
 target_include_directories(keyling_ui_sim PRIVATE
     include

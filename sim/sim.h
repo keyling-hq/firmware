@@ -24,5 +24,8 @@ void sim_button_tick(uint32_t now_ms);
 /* Last value from bsp_display_brightness_set(): 0 means the backlight is off. */
 int sim_brightness(void);
 
+/* Design concepts (mockups.c): one contact sheet per direction, drawn on the headless display. */
+void sim_mockups_render(const char *out, uint16_t *fb, int zoom);
+
 /* RGB565 pixels written as an RGB PNG, each pixel scaled to zoom x zoom. */
 bool sim_png_write(const char *path, const uint16_t *pixels, int width, int height, int zoom, bool dark);

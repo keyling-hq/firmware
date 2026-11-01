@@ -3,6 +3,8 @@
  *
  *   keyling_ui_sim                         window, the space bar is the button
  *   keyling_ui_sim --out DIR SCRIPT...     headless: runs the scripts, saves PNGs into DIR
+ *   keyling_ui_sim --mockups --out DIR     design concepts from mockups.c, one PNG each
+ *   --zoom N                               window scale (default 4)
  *
  * Script commands, one per line or separated by ';' ('#' starts a comment):
  *   wait MS | click | double | hold MS | press | release | shot NAME
@@ -344,8 +346,12 @@ static void run_window(void)
 int main(int argc, char **argv)
 {
     int first_script = argc;
+    bool mockups = false;
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--out") == 0 && i + 1 < argc) {
+        if (strcmp(argv[i], "--mockups") == 0) {
+            mockups = true;
+            s_headless = true;
+        } else if (strcmp(argv[i], "--out") == 0 && i + 1 < argc) {
             s_out = argv[++i];
             s_headless = true;
         } else if (strcmp(argv[i], "--zoom") == 0 && i + 1 < argc) {
@@ -369,6 +375,10 @@ int main(int argc, char **argv)
     lv_display_set_color_format(disp, LV_COLOR_FORMAT_RGB565);
     lv_display_set_buffers(disp, s_fb, NULL, sizeof(s_fb), LV_DISPLAY_RENDER_MODE_DIRECT);
     lv_display_set_flush_cb(disp, flush_cb);
+    if (mockups) {
+        sim_mockups_render(s_out, s_fb, 3);
+        return 0;
+    }
     start_ui();
     advance(100);
     for (int i = first_script; i < argc; i++) {
