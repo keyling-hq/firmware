@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "lvgl.h"
 #include "ui.h"
+#include "ui_options.h"
 
 /*
  * The app API: everything an app needs to build its screens. Screens built with these functions
@@ -23,9 +24,11 @@ typedef struct {
     const char *icon;           /* LV_SYMBOL_* */
     uint32_t color;             /* 0xRRGGBB, used by themes that color apps */
     void (*start)(void);        /* optional: the app became current */
+    const ui_menu_def_t *menu;  /* the app's root menu (ui_options.h); or, for custom screens: */
     ui_screen_fn_t show;        /* builds the app's root screen; also used after overlays */
     void (*stop)(void);         /* optional: the app is being left */
-    ui_screen_fn_t refresh;     /* optional: rebuilds the current screen after shown state changed */
+    ui_screen_fn_t refresh;     /* optional with show: rebuilds the current screen after shown state
+                                   changed; menus rebuild by themselves */
 } ui_app_t;
 
 extern const ui_app_t ui_app_jiggler;

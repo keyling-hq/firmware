@@ -4,6 +4,7 @@
 #include "ui.h"
 #include "ui_input.h"
 #include "ui_theme.h"
+#include "ui_nav.h"
 #include "bsp/tdongle.h"
 #include "esp_lvgl_port.h"
 #include "esp_log.h"
@@ -890,8 +891,12 @@ static void open_selected_app(void)
     if (s_app->start) {
         s_app->start();
     }
-    s_building = s_app->show;
-    s_app->show();
+    if (s_app->menu) {
+        ui_nav_open(s_app->menu);
+    } else {
+        s_building = s_app->show;
+        s_app->show();
+    }
 }
 
 static float s_launcher_from;
@@ -995,7 +1000,9 @@ bool ui_app_info(size_t index, const char **id, const char **name)
 /* The running app's root screen, or the launcher when no app runs. */
 static void show_home(void)
 {
-    if (s_app) {
+    if (s_app && s_app->menu) {
+        ui_nav_show();
+    } else if (s_app) {
         s_building = s_app->show;
         s_app->show();
     } else {
@@ -1405,7 +1412,9 @@ void ui_set_profiles(ui_profile_t active, ui_profile_t default_profile, ui_phant
     s_profile_default = default_profile;
     s_phantom_state = phantom_state;
     update_status();
-    if (s_app && s_app->refresh && s_overlay == OVERLAY_NONE) {
+    if (s_app && s_app->menu && s_overlay == OVERLAY_NONE) {
+        navigate(ui_nav_show);
+    } else if (s_app && s_app->refresh && s_overlay == OVERLAY_NONE) {
         navigate(s_app->refresh);
     }
     lvgl_port_unlock();

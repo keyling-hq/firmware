@@ -66,6 +66,7 @@ endif()
 
 add_executable(keyling_ui_sim
     ${FW}/components/ui/ui.c
+    ${FW}/components/ui/ui_nav.c
     ${FW}/components/ui/ui_input.c
     ${FW}/components/ui/ui_settings.c
     ${FW}/components/ui/ui_jiggler.c

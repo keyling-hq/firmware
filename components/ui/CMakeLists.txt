@@ -1,4 +1,4 @@
-set(srcs "ui.c" "ui_input.c" "ui_settings.c" "ui_jiggler.c" "ui_profiles.c"
+set(srcs "ui.c" "ui_nav.c" "ui_input.c" "ui_settings.c" "ui_jiggler.c" "ui_profiles.c"
     "ui_theme_candy.c" "ui_theme_device.c")
 if(CONFIG_UI_THEME_EXAMPLE)
     list(APPEND srcs "ui_theme_example.c")
