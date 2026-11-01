@@ -108,7 +108,8 @@ With the window focused:
 
 The screen turns off after 15 s without input, as on the dongle; the first press only wakes it.
 Actions the firmware would carry out (pairing, profiles, settings) are printed to the console and
-simulated where the UI shows their result.
+simulated where the UI shows their result. A double click on the launcher turns the screen by
+180° on the dongle: the window can't rotate, so the console says so; screenshots are turned.
 
 ## Screenshot scripts
 

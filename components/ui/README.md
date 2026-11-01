@@ -28,6 +28,33 @@ Text that doesn't fit scrolls in a loop: on the focused item only, from its star
 arrives, after a 0.5 s pause. Titles and other text outside items scroll from when the screen
 opens. Text that fits never moves. Dialogs whose other items are hidden show a bobbing arrow.
 
+## Screen behaviour
+
+- **Screen timeout:** off after the time in settings (15 s by default) without input. The first
+  press after that only wakes the screen. After 2 minutes off, it wakes on the launcher (or the
+  running app's first screen) instead of where it was left.
+- **Overlays** take over the screen while their state lasts, highest priority first: firmware
+  update, passkey, security key request, its result, typing, pairing window. All but typing wake
+  the screen; typing shows nothing about what is typed.
+- **Focus memory:** going back, or returning after an overlay, lands on the item the user left
+  from. Opening an app starts at its first item.
+- **Orientation:** a double click on the launcher turns the picture by 180° (the display's own
+  mirroring, so it costs nothing); saved in settings and applied at start.
+- **Themes:** Settings → Theme switches at once and is saved; `ui_reload_theme()` applies a theme
+  changed from outside the UI (e.g. the phone).
+
+## Built-in apps
+
+| App | Screens |
+|---|---|
+| Jiggler | moves the mouse every 2 s while running; hold to stop |
+| Profiles | switch Main/Phantom, per profile: use, start with this, erase (hold 3 s) |
+| Settings | type test, layout, speed, theme, pair new phone, forget phone, About, factory reset |
+
+About is a scrolling page with the firmware version, profile, phone and USB connection, Bluetooth
+name, security key status and the device's security state (keys, secure boot, flash encryption,
+signed updates).
+
 ## Writing an app
 
 `ui_app_example.c` is a complete example (enable `CONFIG_UI_APP_EXAMPLE`, or `-DSIM_EXAMPLES=ON`
@@ -71,7 +98,17 @@ A theme fills in:
 
 `*_place` functions run for every frame of an animation with a continuous position
 (`l->pos`, `m->pos`); `ui_wrap()` and `ui_menu_offset()` turn it into each app's or item's
-distance from the middle. Helpers in `ui_theme.h` create labels, boxes, scrolling text and tickers.
+distance from the middle. Helpers in `ui_theme.h`:
+
+| Helper | Does |
+|---|---|
+| `ui_box`, `ui_label` | plain objects without LVGL's default styles |
+| `ui_label_scroll` | one-line text that scrolls by the rules above; `ui_label_scroll_align`, `ui_label_scroll_fit` |
+| `ui_label_set_text` | changes the text of either kind of label (e.g. `m->big_label` during an update) |
+| `ui_scroll_activate` | starts or stops scrolling text in a subtree (the shared code does it for items) |
+| `ui_ticker` | a text page scrolling up slowly in a loop |
+| `ui_more_hint` | the bobbing arrow for dialogs with hidden items |
+| `ui_tone_color`, `ui_tone_symbol`, `ui_ble_color`, `ui_usb_color` | colors and symbols by state |
 
 Fonts must be enabled in `sdkconfig.defaults` (`CONFIG_LV_FONT_*`). Screens have a 48 KB LVGL heap,
 shared by the screen being left and the one being built; the simulator prints its use with every

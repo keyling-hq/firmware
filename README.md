@@ -2,8 +2,18 @@
 
 Firmware for Keyling, a USB dongle that types for your phone: it enumerates as a USB keyboard on
 the computer it is plugged into and receives what to type over Bluetooth LE from a paired phone.
-Runs on the LilyGo T-Dongle-S3 (ESP32-S3). It is also a FIDO2/U2F security key, built on
-[canokey-core](https://github.com/canokeys/canokey-core).
+Runs on the LilyGo T-Dongle-S3 (ESP32-S3).
+
+- **Keyboard bridge:** typing, key combos and media keys from the phone, with keyboard layouts on
+  the dongle. Pairing by QR code or passkey.
+- **Security key:** FIDO2/U2F (passkeys, `ssh -sk` keys) and an OpenPGP smartcard over CCID
+  (GnuPG), built on [canokey-core](https://github.com/canokeys/canokey-core). FIDO requests, and
+  OpenPGP ones with touch on, are confirmed by holding the button.
+- **Profiles:** Main and Phantom, each with its own encrypted FIDO and OpenPGP storage; Phantom
+  only opens with a secret from the phone.
+- **On-device apps** on the 160×80 screen with one button: jiggler, profiles, settings. Two themes
+  (Candy and Device); a double click on the launcher turns the screen by 180°.
+- **Updates over Bluetooth;** release firmware accepts only signed updates.
 
 - Clone with `git clone --recurse-submodules` (or run `git submodule update --init` afterwards).
 - Build: PlatformIO with ESP-IDF (`pio run -e hid`; `-e jtag` trades USB for a console and JTAG, for debugging only).
