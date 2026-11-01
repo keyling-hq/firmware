@@ -7,8 +7,9 @@
 #include "ui_options.h"
 
 /*
- * The app API: everything an app needs to build its screens. Screens built with these functions
- * follow the active theme and the UI's input rules, so apps need no LVGL calls of their own.
+ * The app API. Apps normally describe their menus as option tables (ui_options.h) and point
+ * ui_app_t.menu at the first; the functions further down build custom screens. Either way screens
+ * follow the active theme and the UI's input rules, so apps need no LVGL drawing of their own.
  * Everything here runs in the LVGL task or with the LVGL lock held. See README.md.
  */
 
@@ -65,6 +66,8 @@ size_t ui_theme_index(void);
 void ui_theme_select(size_t index);
 
 /*
+ * Custom screens (the menu framework builds its menus with these too).
+ *
  * Menus: a title and a list of items. Click moves to the next item, double click runs back
  * (NULL turns the screen off), hold activates the focused item. Lists and dialogs loop: after the
  * last item comes the first.

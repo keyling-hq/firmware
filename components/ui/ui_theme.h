@@ -60,7 +60,6 @@ struct ui_menu {
     float focus_target;             /* where pos is heading, unwrapped */
     lv_obj_t *big_label;            /* set by the theme where it shows big; ui_label_set_text() updates it */
     lv_obj_t *part[UI_THEME_PARTS];
-    ui_screen_fn_t fn;              /* the screen function that built it, for focus memory */
 };
 
 typedef struct {

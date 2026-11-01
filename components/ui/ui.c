@@ -500,56 +500,14 @@ ui_ble_state_t ui_ble_state(void)
 /* ---- navigation -------------------------------------------------------------------------- */
 
 static ui_screen_fn_t s_pending_nav;
-static ui_screen_fn_t s_building;
 
 static void navigate_async_cb(void *arg)
 {
     ui_screen_fn_t fn = s_pending_nav;
     s_pending_nav = NULL;
     if (fn) {
-        s_building = fn;
         fn();
-        s_building = NULL;
     }
-}
-
-/* The focused item of recently left menus: going back, or returning after an overlay, lands on it. */
-#define FOCUS_MEMORY 8
-static struct {
-    ui_screen_fn_t fn;
-    int focus;
-} s_focus_memory[FOCUS_MEMORY];
-
-static void focus_remember(ui_screen_fn_t fn, int focus)
-{
-    if (!fn) {
-        return;
-    }
-    int slot = FOCUS_MEMORY - 1;
-    for (int i = 0; i < FOCUS_MEMORY; i++) {
-        if (s_focus_memory[i].fn == fn) {
-            slot = i;
-            break;
-        }
-    }
-    memmove(&s_focus_memory[1], &s_focus_memory[0], slot * sizeof(s_focus_memory[0]));
-    s_focus_memory[0].fn = fn;
-    s_focus_memory[0].focus = focus;
-}
-
-static int focus_recall(ui_screen_fn_t fn)
-{
-    for (int i = 0; fn && i < FOCUS_MEMORY; i++) {
-        if (s_focus_memory[i].fn == fn) {
-            return s_focus_memory[i].focus;
-        }
-    }
-    return -1;
-}
-
-static void focus_forget(void)
-{
-    memset(s_focus_memory, 0, sizeof(s_focus_memory));
 }
 
 static void navigate(ui_screen_fn_t fn)
@@ -712,9 +670,6 @@ static void menu_delete_cb(lv_event_t *e)
 {
     ui_menu_t *m = lv_event_get_user_data(e);
     lv_anim_delete(m, NULL);
-    if (m->kind == UI_MENU_LIST || m->kind == UI_MENU_DIALOG) {
-        focus_remember(m->fn, m->focus);
-    }
     lv_free(m);
 }
 
@@ -741,7 +696,6 @@ static ui_menu_t *menu_begin(ui_menu_kind_t kind, const char *title, ui_screen_f
     m->kind = kind;
     m->scr = scr;
     m->app = s_overlay == OVERLAY_NONE ? s_app : NULL;
-    m->fn = s_building;
     snprintf(m->title, sizeof(m->title), "%s", title ? title : "");
     lv_obj_add_event_cb(scr, menu_delete_cb, LV_EVENT_DELETE, m);
     s_menu = m;
@@ -861,8 +815,7 @@ void ui_menu_end(ui_menu_t *m, lv_obj_t *focus)
         target = focus_target(m->scr);
         lv_obj_add_event_cb(target, item_key_cb, LV_EVENT_KEY, NULL);
     } else if (!target) {
-        int recalled = focus_recall(m->fn);
-        target = m->items[recalled >= 0 && recalled < m->count ? recalled : 0].obj;
+        target = m->items[0].obj;
     }
     ui_item_t *item = menu_item(m, target);
     m->focus = item ? (int)(item - m->items) : 0;
@@ -916,7 +869,6 @@ static void update_status(void)
 static void open_selected_app(void)
 {
     s_app = s_apps[s_launcher_index];
-    focus_forget();
     ESP_LOGI(TAG, "starting %s", s_app->name);
     if (s_app->start) {
         s_app->start();
@@ -924,7 +876,6 @@ static void open_selected_app(void)
     if (s_app->menu) {
         ui_nav_open(s_app->menu);
     } else {
-        s_building = s_app->show;
         s_app->show();
     }
 }
@@ -1033,7 +984,6 @@ static void show_home(void)
     if (s_app && s_app->menu) {
         ui_nav_show();
     } else if (s_app) {
-        s_building = s_app->show;
         s_app->show();
     } else {
         show_launcher();
