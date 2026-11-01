@@ -56,10 +56,13 @@ static void launcher_build(ui_launcher_t *l)
         l->part[i] = tile;
     }
     l->part[L_NAME] = ui_label(l->scr, &lv_font_montserrat_14, INK, "");
-    lv_obj_t *pill = ui_box(l->scr, 3, 3, 52, 12, CARD, 6);
+    /* As wide as its text: a locked profile adds the warning symbol. */
+    lv_obj_t *pill = ui_box(l->scr, 3, 3, LV_SIZE_CONTENT, 12, CARD, 6);
+    lv_obj_set_style_pad_hor(pill, 7, 0);
+    lv_obj_set_flex_flow(pill, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(pill, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     l->part[L_PROFILE_BOX] = pill;
     l->part[L_PROFILE] = ui_label(pill, &lv_font_montserrat_10, DIM, "");
-    lv_obj_center(l->part[L_PROFILE]);
     lv_obj_t *icons = ui_box(l->scr, UI_W - 34, 3, 31, 12, CARD, 6);
     l->part[L_BLE] = ui_label(icons, &lv_font_montserrat_10, DIM, LV_SYMBOL_BLUETOOTH);
     lv_obj_align(l->part[L_BLE], LV_ALIGN_LEFT_MID, 6, 0);

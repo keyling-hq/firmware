@@ -353,9 +353,10 @@ static void run_window(void)
     }
     start_ui();
     printf("space: button | t: typing | p: pairing | f: security key request | x: deny it | u: USB | b: Bluetooth | "
-           "l: locked | 1-9: theme | s: scroll speed | esc: quit\n");
+           "l: locked notice | k: profile (Main, Phantom, Phantom locked) | 1-9: theme | s: scroll speed | "
+           "esc: quit\n");
 
-    bool was[9] = { 0 };
+    bool was[10] = { 0 };
     bool theme_was[9] = { 0 };
     bool typing = false, pairing = false, usb = true;
     int ble = UI_BLE_CONNECTED;
@@ -401,6 +402,14 @@ static void run_window(void)
             }
             if (key_edge('L', &was[5])) {
                 ui_show_profile_locked();
+            }
+            /* Main, then Phantom unlocked, then Phantom waiting for the phone's secret. */
+            if (key_edge('K', &was[9])) {
+                bool phantom = s_active == UI_PROFILE_PHANTOM;
+                bool locked = phantom && s_phantom != UI_PHANTOM_OPEN;
+                s_active = phantom && locked ? UI_PROFILE_MAIN : UI_PROFILE_PHANTOM;
+                s_phantom = phantom && !locked ? UI_PHANTOM_WAITING : UI_PHANTOM_OPEN;
+                ui_set_profiles(s_active, s_default, s_phantom);
             }
             if (key_edge(SIM_KEY_ESC, &was[6])) {
                 break;
