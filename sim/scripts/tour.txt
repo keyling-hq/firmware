@@ -1,0 +1,16 @@
+# Screens reachable from the home screen, and the overlays the firmware shows.
+click                   # wakes the screen
+shot 01-home
+click; shot 02-launcher-next
+click; shot 03-launcher-next
+hold 1000; shot 04-app
+double; shot 05-back
+typing on; wait 200; shot 06-typing
+typing off; wait 200
+fido sign_in github.com; wait 200; shot 07-fido-sign-in
+hold 1500; wait 100; shot 08-fido-done
+wait 3000
+pairing 482915; wait 200; shot 09-pairing
+pairing off; wait 200
+update 42; wait 200; shot 10-update
+update off
