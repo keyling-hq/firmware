@@ -11,7 +11,8 @@ Modes:
 - **Window:** the 160×80 screen at 4× (`--zoom N` to change), the space bar is the button.
 - **Screenshots** (`--out DIR SCRIPT...`): runs a script of button presses and firmware events on
   a simulated clock and saves PNGs. The same script gives the same images on every run and every OS.
-- **Design mockups** (`--mockups --out DIR`): renders design concepts, see below.
+- **Design mockups** (`--mockups`): design concepts to try in a window, or rendered as images with
+  `--out DIR`; see below.
 
 All need a firmware build done once, for LVGL in `managed_components`. The commands below run from
 the `firmware` folder.
@@ -109,15 +110,30 @@ simulated where the UI shows their result.
 
 ## Design mockups
 
-`mockups.c` holds design concepts: static screens drawn with plain LVGL, separate from
-`components/ui`, for comparing looks before building one into the real UI. `--mockups` renders
-each concept as one contact sheet (its screens in a 2×2 grid, at 3×) into the `--out` folder:
+`mockups.c` holds design concepts: small prototypes drawn with plain LVGL, separate from
+`components/ui`, for comparing looks before building one into the real UI. Each concept draws the
+same states: the launcher, an app's menu, and the security key prompt and its result.
+
+Try them in a window:
+
+```
+sim\build\keyling_ui_sim.exe --mockups
+```
+
+| Key | Does |
+|---|---|
+| Space | the button: click = next app or item, hold = open the app (hold to approve in the prompt), double click = back |
+| `1` `2` `3` | switch concept, keeping the current state |
+| `f` | security key prompt; holding fills it, releasing early resets it |
+| `Esc` | quit |
+
+Or render each concept as one contact sheet (four states in a 2×2 grid, at 3×) into a folder:
 
 ```
 sim\build\keyling_ui_sim.exe --mockups --out sim\shots
 ```
 
-On Linux: `sim/build-linux/keyling_ui_sim --mockups --out sim/shots`.
+On Linux, the same with `sim/build-linux/keyling_ui_sim`.
 
 Besides the firmware's fonts, mockups can use Montserrat 10, 16 and 20 and the UNSCII 8 and 16
 pixel fonts. These are enabled in the simulator only: a design that uses one needs it enabled in

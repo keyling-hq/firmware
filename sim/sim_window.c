@@ -82,9 +82,10 @@ bool sim_window_focused(void)
 
 bool sim_key_down(int key)
 {
-    SDL_Scancode code = key == SIM_KEY_SPACE ? SDL_SCANCODE_SPACE
-                        : key == SIM_KEY_ESC ? SDL_SCANCODE_ESCAPE
-                                             : SDL_SCANCODE_A + (key - 'A');
+    SDL_Scancode code = key == SIM_KEY_SPACE           ? SDL_SCANCODE_SPACE
+                        : key == SIM_KEY_ESC           ? SDL_SCANCODE_ESCAPE
+                        : key >= '1' && key <= '9'     ? SDL_SCANCODE_1 + (key - '1')
+                                                       : SDL_SCANCODE_A + (key - 'A');
     return SDL_GetKeyboardState(NULL)[code] != 0;
 }
 

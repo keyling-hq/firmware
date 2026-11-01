@@ -3,7 +3,8 @@
  *
  *   keyling_ui_sim                         window, the space bar is the button
  *   keyling_ui_sim --out DIR SCRIPT...     headless: runs the scripts, saves PNGs into DIR
- *   keyling_ui_sim --mockups --out DIR     design concepts from mockups.c, one PNG each
+ *   keyling_ui_sim --mockups               design concepts from mockups.c in a window
+ *   keyling_ui_sim --mockups --out DIR     the same, one contact sheet PNG per concept
  *   --zoom N                               window scale (default 4)
  *
  * Script commands, one per line or separated by ';' ('#' starts a comment):
@@ -343,6 +344,41 @@ static void run_window(void)
     }
 }
 
+static void run_mockups_window(void)
+{
+    if (!sim_window_create(WIDTH, HEIGHT, s_zoom)) {
+        fprintf(stderr, "cannot create the window\n");
+        exit(1);
+    }
+    sim_mockups_start();
+    bool was[5] = { 0 };
+    while (sim_window_open()) {
+        uint32_t now = sim_clock_ms();
+        bool focused = sim_window_focused();
+        lv_lock();
+        sim_button_set(focused && sim_key_down(SIM_KEY_SPACE), now);
+        sim_button_tick(now);
+        if (focused) {
+            for (int c = 0; c < 3; c++) {
+                if (key_edge('1' + c, &was[c])) {
+                    sim_mockups_set_concept(c);
+                }
+            }
+            if (key_edge('F', &was[3])) {
+                sim_mockups_fido();
+            }
+            if (key_edge(SIM_KEY_ESC, &was[4])) {
+                lv_unlock();
+                break;
+            }
+        }
+        sim_mockups_poll(now);
+        lv_unlock();
+        lv_timer_handler();
+        sim_sleep_ms(STEP_MS);
+    }
+}
+
 int main(int argc, char **argv)
 {
     int first_script = argc;
@@ -350,7 +386,6 @@ int main(int argc, char **argv)
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--mockups") == 0) {
             mockups = true;
-            s_headless = true;
         } else if (strcmp(argv[i], "--out") == 0 && i + 1 < argc) {
             s_out = argv[++i];
             s_headless = true;
@@ -366,7 +401,11 @@ int main(int argc, char **argv)
     lv_init();
     lv_tick_set_cb(tick_cb);
     if (!s_headless) {
-        run_window();
+        if (mockups) {
+            run_mockups_window();
+        } else {
+            run_window();
+        }
         return 0;
     }
 
