@@ -120,3 +120,14 @@ commands (button gestures, waits, firmware events, `theme ID`, `scroll PX_PER_S`
 `sim_main.c`. `scripts/tour.txt` is a short example; `scripts/themes.txt` shows every kind of
 screen in the current theme, so to compare themes run it once per theme, e.g. after a file that
 holds `theme device`.
+
+`scripts/readme.txt` makes the screenshots in `resources/` (Candy and Device, each screen at its
+start, with scrolling slowed to a stop). From the `firmware` folder, after a file holding
+`theme candy`:
+
+```
+simuild\keyling_ui_sim.exe --out resources\candy candy.txt sim\scriptseadme.txt
+```
+
+`tools/contact_sheet.py OUT.png COLUMNS IN.png...` arranges them into one image
+(`resources/candy.png`, `resources/device.png`).
