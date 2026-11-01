@@ -54,13 +54,14 @@ esp_err_t settings_init(void)
         ESP_LOGI(TAG, "no stored settings, using defaults");
         return ESP_OK;
     }
-    settings_t stored;
+    settings_t stored = s_settings;
     size_t len = sizeof(stored);
     esp_err_t err = nvs_get_blob(nvs, NVS_KEY, &stored, &len);
     nvs_close(nvs);
-    if (err == ESP_OK && len == sizeof(stored)) {
+    if (err == ESP_OK && len >= offsetof(settings_t, theme) && len <= sizeof(stored)) {
         stored.layout[SETTINGS_LAYOUT_LEN - 1] = '\0';
         stored.ble_name[SETTINGS_BLE_NAME_LEN - 1] = '\0';
+        stored.theme[SETTINGS_THEME_LEN - 1] = '\0';
         if (strcmp(stored.ble_name, LEGACY_DEFAULT_NAME) == 0) {
             default_name(stored.ble_name, sizeof(stored.ble_name));
         }

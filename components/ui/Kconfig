@@ -1,0 +1,31 @@
+menu "Keyling UI"
+
+    menu "Apps"
+        comment "Settings is always built: pairing and factory reset are there."
+
+        config UI_APP_JIGGLER
+            bool "Jiggler (moves the mouse to keep the computer awake)"
+            default y
+
+        config UI_APP_PROFILES
+            bool "Profiles (switch, set up and erase Main and Phantom)"
+            default y
+            help
+                Without it, profiles can still be used from the phone.
+
+        config UI_APP_EXAMPLE
+            bool "Template app"
+            default n
+            help
+                Adds ui_app_example.c to the launcher: every kind of menu option, doing nothing.
+                It is the starting point for new apps.
+    endmenu
+
+    config UI_THEME_EXAMPLE
+        bool "Example theme (Quiet)"
+        default n
+        help
+            Adds ui_theme_example.c to the themes in Settings. It is the starting point for new
+            themes: copy it, rename the theme, and add it to s_themes in ui.c.
+
+endmenu

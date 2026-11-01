@@ -1,4 +1,5 @@
 /* Stand-ins for the firmware services the UI calls. */
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "lvgl.h"
@@ -8,6 +9,8 @@
 #include "fw_info.h"
 #include "keystore.h"
 #include "settings.h"
+#include "status_led.h"
+#include "ui.h"
 #include "usb_hid.h"
 #include "sim.h"
 
@@ -135,4 +138,41 @@ esp_err_t bsp_display_brightness_set(int percent)
 int sim_brightness(void)
 {
     return s_brightness;
+}
+
+/* The status LED's base pattern, chosen from the Bluetooth state as app.c does. */
+static status_led_pattern_t s_led = STATUS_LED_OFF;
+static uint32_t s_led_start;
+
+void sim_led_for_ble(ui_ble_state_t state)
+{
+    status_led_pattern_t pattern = state == UI_BLE_CONNECTED   ? STATUS_LED_CONNECTED
+                                   : state == UI_BLE_PAIRING   ? STATUS_LED_PAIRING
+                                   : state == UI_BLE_UNPAIRED  ? STATUS_LED_ADVERTISING
+                                   : state == UI_BLE_SECURING  ? s_led
+                                                               : STATUS_LED_OFF;
+    if (pattern != s_led) {
+        s_led = pattern;
+        s_led_start = lv_tick_get();
+    }
+}
+
+void status_led_base(status_led_pattern_t *pattern, uint32_t *elapsed_ms)
+{
+    *pattern = s_led;
+    *elapsed_ms = lv_tick_elaps(s_led_start);
+}
+
+static bool s_flipped;
+
+esp_err_t bsp_display_flip(bool flipped)
+{
+    s_flipped = flipped;
+    printf("screen %s\n", flipped ? "turned by 180 degrees" : "upright");
+    return ESP_OK;
+}
+
+bool sim_flipped(void)
+{
+    return s_flipped;
 }

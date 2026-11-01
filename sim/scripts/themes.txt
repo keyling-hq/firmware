@@ -1,0 +1,24 @@
+# Every kind of screen in the current theme. Run once per theme, e.g. with "theme device" first.
+click                       # wakes the screen
+shot launcher
+press; wait 60; release; wait 120; shot launcher-sliding
+wait 300
+click; shot launcher-settings
+hold 700; shot settings
+click; click; wait 300; shot settings-speed
+click; click; click; click; click; wait 300; shot settings-wrap
+hold 700; wait 300; shot factory-reset
+click; wait 300; shot factory-reset-hold-item
+double; wait 300; shot back-to-settings     # focus returns to Factory reset
+click; click; click; click; click; click; click; click; wait 300    # once around, to About
+hold 700; wait 3500; shot about
+double; wait 300
+fido sign_in github.com; wait 300; shot fido
+press; wait 1000; shot fido-holding
+release; wait 300
+fido_done ok; wait 300; shot fido-approved
+wait 2000
+typing on; wait 300; shot typing
+typing off; wait 300
+pairing 482915; wait 300; shot pairing
+pairing off; wait 300

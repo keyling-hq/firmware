@@ -3,6 +3,7 @@
  *
  *   keyling_ui_sim                         window, the space bar is the button
  *   keyling_ui_sim --out DIR SCRIPT...     headless: runs the scripts, saves PNGs into DIR
+ *   --zoom N                               window scale (default 4)
  *
  * Script commands, one per line or separated by ';' ('#' starts a comment):
  *   wait MS | click | double | hold MS | press | release | shot NAME
@@ -10,7 +11,7 @@
  *   pairing PASSKEY|off | passkey PASSKEY|off | update PERCENT|off
  *   fido other|register|sign_in|select|reset|pgp_sign|pgp_decrypt|pgp_auth|profile_reset [RP_ID]
  *   fido_done ok|fail | profiles main|phantom [main|phantom] [open|new|waiting] | locked
- *   zoom N (PNG scale, default 4)
+ *   theme ID (candy, device, quiet with SIM_EXAMPLES) | scroll PX_PER_S | zoom N (PNG scale, default 4)
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,6 +20,7 @@
 #include "keymap.h"
 #include "settings.h"
 #include "ui.h"
+#include "ui_theme.h"
 #include "sim.h"
 
 #define WIDTH   160
@@ -33,6 +35,13 @@ static int s_zoom = 4;
 
 static ui_profile_t s_active = UI_PROFILE_MAIN, s_default = UI_PROFILE_MAIN;
 static ui_phantom_state_t s_phantom = UI_PHANTOM_OPEN;
+
+/* As app.c does: the status LED's pattern follows the Bluetooth state, then the UI is told. */
+static void set_ble(ui_ble_state_t state)
+{
+    sim_led_for_ble(state);
+    ui_set_ble_state(state);
+}
 
 /* Actions are applied between LVGL runs, as the firmware applies them from its own tasks. */
 #define MAX_PENDING 8
@@ -77,14 +86,14 @@ static void apply_action(ui_action_t action, int arg)
         settings_set(&settings);
         break;
     case UI_ACTION_PAIR_NEW:
-        ui_set_ble_state(UI_BLE_UNPAIRED);
+        set_ble(UI_BLE_UNPAIRED);
         ui_show_pairing(true, 482915, "KL1:34851857FE92:482915");
         break;
     case UI_ACTION_CANCEL_PAIRING:
         ui_show_pairing(false, 0, NULL);
         break;
     case UI_ACTION_FORGET_PHONE:
-        ui_set_ble_state(UI_BLE_UNPAIRED);
+        set_ble(UI_BLE_UNPAIRED);
         break;
     case UI_ACTION_FIDO_CONFIRM:
     case UI_ACTION_FIDO_RESET_CONFIRM:
@@ -101,6 +110,14 @@ static void apply_action(ui_action_t action, int arg)
         s_active = s_default = arg;
         ui_set_profiles(s_active, s_default, s_phantom);
         break;
+    case UI_ACTION_FLIP_SCREEN:
+        settings.screen_flipped = arg != 0;
+        settings_set(&settings);
+        break;
+    case UI_ACTION_SET_THEME:
+        strncpy(settings.theme, ui_theme_id(arg), sizeof(settings.theme) - 1);
+        settings_set(&settings);
+        break;
     case UI_ACTION_RESET_PROFILE:
         if (arg == UI_PROFILE_PHANTOM) {
             s_phantom = UI_PHANTOM_NEW;
@@ -110,6 +127,24 @@ static void apply_action(ui_action_t action, int arg)
     default:
         break;
     }
+}
+
+/* As the phone would change it: through settings, then the UI reloads it. */
+static void set_theme(const char *id)
+{
+    settings_t settings;
+    settings_get(&settings);
+    snprintf(settings.theme, sizeof(settings.theme), "%s", id);
+    settings_set(&settings);
+    ui_reload_theme();
+}
+
+/* Rebuilds the current screen so its scrolling text uses the new speed. */
+static void set_scroll_speed(int px_per_s)
+{
+    ui_scroll_speed_set(px_per_s);
+    printf("scrolling text: %d px/s\n", ui_scroll_speed());
+    ui_reload_theme();
 }
 
 static void run_once(void)
@@ -140,9 +175,21 @@ static void press(bool down)
 static void shot(const char *name)
 {
     lv_refr_now(NULL);
+    lv_mem_monitor_t mon;
+    lv_mem_monitor(&mon);
+    printf("%s: LVGL heap %u used, %u at most, of %u\n", name, (unsigned)(mon.total_size - mon.free_size),
+           (unsigned)mon.max_used, (unsigned)mon.total_size);
     char path[512];
     snprintf(path, sizeof(path), "%s/%s.png", s_out, name);
-    if (!sim_png_write(path, s_fb, WIDTH, HEIGHT, s_zoom, sim_brightness() == 0)) {
+    static uint16_t turned[WIDTH * HEIGHT];
+    const uint16_t *px = s_fb;
+    if (sim_flipped()) {
+        for (int i = 0; i < WIDTH * HEIGHT; i++) {
+            turned[i] = s_fb[WIDTH * HEIGHT - 1 - i];
+        }
+        px = turned;
+    }
+    if (!sim_png_write(path, px, WIDTH, HEIGHT, s_zoom, sim_brightness() == 0)) {
         fprintf(stderr, "cannot write %s\n", path);
         exit(1);
     }
@@ -216,7 +263,7 @@ static void command(char *line)
     } else if (strcmp(cmd, "usb") == 0) {
         ui_set_usb_state(on(a1));
     } else if (strcmp(cmd, "ble") == 0 && lookup(a1, s_ble_names, 5) >= 0) {
-        ui_set_ble_state(lookup(a1, s_ble_names, 5));
+        set_ble(lookup(a1, s_ble_names, 5));
     } else if (strcmp(cmd, "typing") == 0) {
         ui_show_typing(on(a1));
     } else if (strcmp(cmd, "pairing") == 0) {
@@ -242,6 +289,10 @@ static void command(char *line)
         ui_set_profiles(s_active, s_default, s_phantom);
     } else if (strcmp(cmd, "locked") == 0) {
         ui_show_profile_locked();
+    } else if (strcmp(cmd, "theme") == 0 && a1) {
+        set_theme(a1);
+    } else if (strcmp(cmd, "scroll") == 0 && a1) {
+        set_scroll_speed(atoi(a1));
     } else {
         fprintf(stderr, "unknown command: %s\n", cmd);
         exit(2);
@@ -282,7 +333,7 @@ static void start_ui(void)
     }
     ui_set_fido_status("ok");
     ui_set_usb_state(true);
-    ui_set_ble_state(UI_BLE_CONNECTED);
+    set_ble(UI_BLE_CONNECTED);
     ui_set_profiles(s_active, s_default, s_phantom);
 }
 
@@ -301,10 +352,12 @@ static void run_window(void)
         exit(1);
     }
     start_ui();
-    printf("space: button | t: typing | p: pairing | f: security key request | u: USB | b: Bluetooth | "
-           "l: locked | esc: quit\n");
+    printf("space: button | t: typing | p: pairing | f: security key request | x: deny it | u: USB | b: Bluetooth | "
+           "l: locked notice | k: profile (Main, Phantom, Phantom locked) | 1-9: theme | s: scroll speed | "
+           "esc: quit\n");
 
-    bool was[8] = { 0 };
+    bool was[10] = { 0 };
+    bool theme_was[9] = { 0 };
     bool typing = false, pairing = false, usb = true;
     int ble = UI_BLE_CONNECTED;
     while (sim_window_open()) {
@@ -312,6 +365,11 @@ static void run_window(void)
         sim_button_set(focused && sim_key_down(SIM_KEY_SPACE), sim_clock_ms());
         sim_button_tick(sim_clock_ms());
         if (focused) {
+            for (int i = 0; i < 9 && ui_theme_id(i); i++) {
+                if (key_edge('1' + i, &theme_was[i])) {
+                    set_theme(ui_theme_id(i));
+                }
+            }
             if (key_edge('T', &was[0])) {
                 ui_show_typing(typing = !typing);
             }
@@ -322,15 +380,36 @@ static void run_window(void)
             if (key_edge('F', &was[2])) {
                 ui_show_fido_request(UI_FIDO_SIGN_IN, "github.com");
             }
+            if (key_edge('X', &was[7])) {
+                ui_show_fido_done(false);
+            }
+            if (key_edge('S', &was[8])) {
+                static const int speeds[] = { 20, 30, 40, 60 };
+                int next = speeds[0];
+                for (size_t i = 0; i + 1 < sizeof(speeds) / sizeof(speeds[0]); i++) {
+                    if (ui_scroll_speed() == speeds[i]) {
+                        next = speeds[i + 1];
+                    }
+                }
+                set_scroll_speed(next);
+            }
             if (key_edge('U', &was[3])) {
                 ui_set_usb_state(usb = !usb);
             }
             if (key_edge('B', &was[4])) {
                 ble = (ble + 1) % 5;
-                ui_set_ble_state(ble);
+                set_ble(ble);
             }
             if (key_edge('L', &was[5])) {
                 ui_show_profile_locked();
+            }
+            /* Main, then Phantom unlocked, then Phantom waiting for the phone's secret. */
+            if (key_edge('K', &was[9])) {
+                bool phantom = s_active == UI_PROFILE_PHANTOM;
+                bool locked = phantom && s_phantom != UI_PHANTOM_OPEN;
+                s_active = phantom && locked ? UI_PROFILE_MAIN : UI_PROFILE_PHANTOM;
+                s_phantom = phantom && !locked ? UI_PHANTOM_WAITING : UI_PHANTOM_OPEN;
+                ui_set_profiles(s_active, s_default, s_phantom);
             }
             if (key_edge(SIM_KEY_ESC, &was[6])) {
                 break;
