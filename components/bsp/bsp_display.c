@@ -13,6 +13,8 @@ static const char *TAG = "bsp_display";
 #define BACKLIGHT_LEDC_CHANNEL  LEDC_CHANNEL_0
 #define DRAW_BUF_LINES          (BSP_LCD_V_RES / 2)
 
+static esp_lcd_panel_handle_t s_panel;
+
 static esp_err_t backlight_init(void)
 {
     const ledc_timer_config_t timer = {
@@ -98,8 +100,18 @@ esp_err_t bsp_display_start(lv_display_t **out_disp)
     };
     lv_display_t *disp = lvgl_port_add_disp(&disp_cfg);
     ESP_RETURN_ON_FALSE(disp, ESP_FAIL, TAG, "lvgl add disp");
+    s_panel = panel;
 
     ESP_RETURN_ON_ERROR(bsp_display_brightness_set(100), TAG, "brightness");
     *out_disp = disp;
+    return ESP_OK;
+}
+
+/* Swapping both mirror flags turns the picture by 180°; the panel's gaps are the same on both sides. */
+esp_err_t bsp_display_flip(bool flipped)
+{
+    ESP_RETURN_ON_FALSE(s_panel, ESP_ERR_INVALID_STATE, TAG, "display not started");
+    ESP_RETURN_ON_ERROR(esp_lcd_panel_mirror(s_panel, flipped, !flipped), TAG, "mirror");
+    lv_obj_invalidate(lv_screen_active());
     return ESP_OK;
 }

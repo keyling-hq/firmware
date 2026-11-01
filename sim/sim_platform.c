@@ -1,4 +1,5 @@
 /* Stand-ins for the firmware services the UI calls. */
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "lvgl.h"
@@ -135,4 +136,18 @@ esp_err_t bsp_display_brightness_set(int percent)
 int sim_brightness(void)
 {
     return s_brightness;
+}
+
+static bool s_flipped;
+
+esp_err_t bsp_display_flip(bool flipped)
+{
+    s_flipped = flipped;
+    printf("screen %s\n", flipped ? "turned by 180 degrees" : "upright");
+    return ESP_OK;
+}
+
+bool sim_flipped(void)
+{
+    return s_flipped;
 }

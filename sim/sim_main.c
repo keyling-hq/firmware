@@ -103,6 +103,10 @@ static void apply_action(ui_action_t action, int arg)
         s_active = s_default = arg;
         ui_set_profiles(s_active, s_default, s_phantom);
         break;
+    case UI_ACTION_FLIP_SCREEN:
+        settings.screen_flipped = arg != 0;
+        settings_set(&settings);
+        break;
     case UI_ACTION_SET_THEME:
         strncpy(settings.theme, ui_theme_id(arg), sizeof(settings.theme) - 1);
         settings_set(&settings);
@@ -170,7 +174,15 @@ static void shot(const char *name)
            (unsigned)mon.max_used, (unsigned)mon.total_size);
     char path[512];
     snprintf(path, sizeof(path), "%s/%s.png", s_out, name);
-    if (!sim_png_write(path, s_fb, WIDTH, HEIGHT, s_zoom, sim_brightness() == 0)) {
+    static uint16_t turned[WIDTH * HEIGHT];
+    const uint16_t *px = s_fb;
+    if (sim_flipped()) {
+        for (int i = 0; i < WIDTH * HEIGHT; i++) {
+            turned[i] = s_fb[WIDTH * HEIGHT - 1 - i];
+        }
+        px = turned;
+    }
+    if (!sim_png_write(path, px, WIDTH, HEIGHT, s_zoom, sim_brightness() == 0)) {
         fprintf(stderr, "cannot write %s\n", path);
         exit(1);
     }

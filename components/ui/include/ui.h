@@ -25,6 +25,7 @@ typedef enum {
     UI_ACTION_DEFAULT_PROFILE,      /* arg: ui_profile_t, also made active */
     UI_ACTION_RESET_PROFILE,        /* arg: ui_profile_t; the user already confirmed */
     UI_ACTION_SET_THEME,            /* arg: theme index, see ui_theme_id(); save it in settings */
+    UI_ACTION_FLIP_SCREEN,          /* arg: 1 if the picture is now turned by 180°; save it */
 } ui_action_t;
 
 typedef enum {

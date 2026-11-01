@@ -21,6 +21,7 @@ typedef struct {
     uint16_t screen_timeout_s;
     char ble_name[SETTINGS_BLE_NAME_LEN];
     char theme[SETTINGS_THEME_LEN];     /* UI theme id; empty for the default */
+    uint8_t screen_flipped;             /* the picture is turned by 180° */
 } settings_t;
 
 typedef struct {

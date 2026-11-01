@@ -945,6 +945,20 @@ static void carousel_event_cb(lv_event_t *e)
     }
 }
 
+/* Double click on the launcher turns the picture around: the dongle may sit either way up. */
+static void launcher_key_cb(lv_event_t *e)
+{
+    if (lv_event_get_key(e) != LV_KEY_ESC) {
+        return;
+    }
+    settings_t settings;
+    settings_get(&settings);
+    bool flipped = !settings.screen_flipped;
+    if (bsp_display_flip(flipped) == ESP_OK) {
+        ui_emit(UI_ACTION_FLIP_SCREEN, flipped);
+    }
+}
+
 static void show_launcher(void)
 {
     lv_obj_t *scr = screen_begin(NULL);
@@ -952,7 +966,7 @@ static void show_launcher(void)
     for (size_t i = 0; i < APP_COUNT; i++) {
         lv_obj_t *slot = focus_target(scr);
         lv_obj_add_event_cb(slot, carousel_event_cb, LV_EVENT_ALL, (void *)(uintptr_t)i);
-        lv_obj_add_event_cb(slot, item_key_cb, LV_EVENT_KEY, NULL);
+        lv_obj_add_event_cb(slot, launcher_key_cb, LV_EVENT_KEY, NULL);
         if (i == s_launcher_index) {
             focus = slot;
         }
@@ -1453,6 +1467,11 @@ esp_err_t ui_start(button_handle_t btn, ui_action_cb_t action_cb)
     }
     s_action_cb = action_cb;
     theme_load();
+    settings_t settings;
+    settings_get(&settings);
+    if (settings.screen_flipped) {
+        bsp_display_flip(true);
+    }
 
     esp_err_t ret = ESP_OK;
     s_indev = ui_input_create(btn);

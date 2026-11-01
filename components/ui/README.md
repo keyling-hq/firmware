@@ -18,7 +18,7 @@ One button, the same everywhere:
 | Gesture | Lists and dialogs | Launcher |
 |---|---|---|
 | Click | next item; after the last comes the first | next app |
-| Double click | back (or screen off where there is no back) | screen off |
+| Double click | back (or screen off where there is no back) | turn the screen by 180° (saved) |
 | Hold | activate the focused item | open the app |
 
 Hold items ("Hold to erase") fill while held and act once full; releasing early resets them.

@@ -43,6 +43,9 @@ esp_err_t bsp_display_start(lv_display_t **out_disp);
 
 esp_err_t bsp_display_brightness_set(int percent);
 
+/** Turns the picture by 180° (or back). Call with the LVGL lock held: the screen is redrawn. */
+esp_err_t bsp_display_flip(bool flipped);
+
 esp_err_t bsp_button_create(button_handle_t *out_btn);
 
 esp_err_t bsp_led_init(void);

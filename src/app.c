@@ -108,6 +108,11 @@ static void set_theme(settings_t *settings, int index)
     }
 }
 
+static void set_flipped(settings_t *settings, int flipped)
+{
+    settings->screen_flipped = flipped != 0;
+}
+
 static void set_speed(settings_t *settings, int index)
 {
     if (index >= 0 && (size_t)index < settings_speed_preset_count) {
@@ -184,6 +189,9 @@ static void ui_action_cb(ui_action_t action, int arg)
         break;
     case UI_ACTION_SET_THEME:
         update_settings(set_theme, arg);
+        break;
+    case UI_ACTION_FLIP_SCREEN:
+        update_settings(set_flipped, arg);
         break;
     case UI_ACTION_ABORT_TYPING:
         protocol_abort();
