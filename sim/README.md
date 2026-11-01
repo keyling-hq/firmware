@@ -112,7 +112,8 @@ simulated where the UI shows their result.
 
 `mockups.c` holds design concepts: small prototypes drawn with plain LVGL, separate from
 `components/ui`, for comparing looks before building one into the real UI. Each concept draws the
-same states: the launcher, an app's menu, and the security key prompt and its result.
+same states: the launcher, an app's menu, About (Settings, hold on About), and the security key
+prompt and its result. Concepts 2 and 3 animate the launcher and loop their lists.
 
 Try them in a window:
 
