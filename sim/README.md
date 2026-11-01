@@ -103,6 +103,7 @@ With the window focused:
 | `u` | USB connected/disconnected |
 | `b` | next Bluetooth state |
 | `l` | "profile locked" message |
+| `k` | next profile state: Main, Phantom, Phantom locked (waiting for the phone) |
 | `1`-`9` | switch theme (as the phone would, through settings) |
 | `s` | scrolling text speed: 20, 30, 40 (default) or 60 px/s; the console shows it |
 | `Esc` | quit |
