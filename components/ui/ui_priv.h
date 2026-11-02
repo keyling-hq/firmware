@@ -36,6 +36,7 @@ typedef struct {
 } ui_app_t;
 
 extern const ui_app_t ui_app_settings;
+extern const ui_app_t ui_app_drive;
 #if CONFIG_UI_APP_JIGGLER
 extern const ui_app_t ui_app_jiggler;
 #endif

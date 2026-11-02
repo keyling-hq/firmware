@@ -122,6 +122,11 @@ const char *fw_info_version(void)
     return "v0.2.0-sim";
 }
 
+bool usb_hid_disk_ejected(void)
+{
+    return false;
+}
+
 esp_err_t usb_hid_mouse_report(uint8_t buttons, int8_t x, int8_t y, int8_t wheel, int8_t pan)
 {
     return ESP_OK;

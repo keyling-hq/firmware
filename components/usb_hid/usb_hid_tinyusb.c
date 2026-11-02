@@ -9,11 +9,14 @@
 #include "esp_mac.h"
 #include "tinyusb.h"
 #include "tinyusb_default_config.h"
+#include "class/msc/msc.h"
 #include "device/usbd_pvt.h"
 
 static const char *TAG = "usb_hid";
 
 #define USB_PID                 0x4F01
+/* The drive mode has its own product ID, so hosts keep separate driver bindings for each set. */
+#define USB_PID_DISK            0x4F02
 /* Changes whenever the interface set does, so hosts don't reuse cached driver bindings. */
 #define USB_BCD_DEVICE          0x0201
 #define HID_EP_SIZE             16
@@ -40,6 +43,9 @@ enum {
 #define EPNUM_CCID_OUT  0x03
 #define EPNUM_CCID_IN   0x83
 #define EPNUM_CCID_INT  0x84
+#define EPNUM_MSC_OUT   0x03
+#define EPNUM_MSC_IN    0x83
+#define MSC_EP_SIZE     64
 
 enum {
     STRID_LANGID = 0,
@@ -49,6 +55,7 @@ enum {
     STRID_HID,
     STRID_FIDO,
     STRID_CCID,
+    STRID_DISK,
     STRID_COUNT,
 };
 
@@ -86,18 +93,33 @@ static const uint8_t s_fido_report_desc[] = {
     TUD_HID_REPORT_DESC_FIDO_U2F(USB_HID_FIDO_REPORT_SIZE),
 };
 
-#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN + TUD_HID_INOUT_DESC_LEN + TUD_CCID_DESC_LEN)
+#define CONFIG_HEAD_LEN     (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN + TUD_HID_INOUT_DESC_LEN)
+#define CONFIG_TOTAL_LEN    (CONFIG_HEAD_LEN + TUD_CCID_DESC_LEN)
+#define CONFIG_DISK_LEN     (CONFIG_HEAD_LEN + TUD_MSC_DESC_LEN)
 
-static const uint8_t s_config_desc[] = {
-    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
-    TUD_HID_DESCRIPTOR(ITF_NUM_HID, STRID_HID, HID_ITF_PROTOCOL_NONE, sizeof(s_hid_report_desc), EPNUM_HID, HID_EP_SIZE, 1),
-    TUD_HID_INOUT_DESCRIPTOR(ITF_NUM_FIDO, STRID_FIDO, HID_ITF_PROTOCOL_NONE, sizeof(s_fido_report_desc),
-                             EPNUM_FIDO_OUT, EPNUM_FIDO_IN, USB_HID_FIDO_REPORT_SIZE, FIDO_POLL_MS),
+#define CONFIG_HEAD(total_len)                                                                                    \
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, total_len, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),               \
+    TUD_HID_DESCRIPTOR(ITF_NUM_HID, STRID_HID, HID_ITF_PROTOCOL_NONE, sizeof(s_hid_report_desc), EPNUM_HID,      \
+                       HID_EP_SIZE, 1),                                                                           \
+    TUD_HID_INOUT_DESCRIPTOR(ITF_NUM_FIDO, STRID_FIDO, HID_ITF_PROTOCOL_NONE, sizeof(s_fido_report_desc),          \
+                             EPNUM_FIDO_OUT, EPNUM_FIDO_IN, USB_HID_FIDO_REPORT_SIZE, FIDO_POLL_MS)
+
+static const uint8_t s_config_card[] = {
+    CONFIG_HEAD(CONFIG_TOTAL_LEN),
     TUD_CCID_DESCRIPTOR(ITF_NUM_CCID, STRID_CCID, EPNUM_CCID_OUT, EPNUM_CCID_IN, EPNUM_CCID_INT, USB_HID_CCID_PACKET_SIZE,
                         USB_HID_CCID_MAX_MESSAGE, USB_HID_CCID_MAX_MESSAGE - 10),
 };
 
-static const tusb_desc_device_t s_device_desc = {
+/* The endpoint budget has no room for both: the drive takes the smartcard's place. */
+static const uint8_t s_config_disk[] = {
+    CONFIG_HEAD(CONFIG_DISK_LEN),
+    TUD_MSC_DESCRIPTOR(ITF_NUM_CCID, STRID_DISK, EPNUM_MSC_OUT, EPNUM_MSC_IN, MSC_EP_SIZE),
+};
+
+/* TinyUSB keeps pointers to these and reads them at each enumeration. */
+static uint8_t s_config_desc[CONFIG_TOTAL_LEN > CONFIG_DISK_LEN ? CONFIG_TOTAL_LEN : CONFIG_DISK_LEN];
+
+static tusb_desc_device_t s_device_desc = {
     .bLength = sizeof(tusb_desc_device_t),
     .bDescriptorType = TUSB_DESC_DEVICE,
     .bcdUSB = 0x0200,
@@ -121,6 +143,7 @@ static const char *s_strings[STRID_COUNT] = {
     [STRID_HID] = "Keyboard",
     [STRID_FIDO] = "Security key",
     [STRID_CCID] = "Smartcard",
+    [STRID_DISK] = "Drive",
 };
 
 static SemaphoreHandle_t s_lock;
@@ -177,11 +200,11 @@ static usb_hid_ccid_rx_cb_t s_ccid_rx_cb;
 static usb_hid_ccid_tx_done_cb_t s_ccid_tx_done_cb;
 static void *s_ccid_ctx;
 
-static void ccid_init(void)
+static void driver_init(void)
 {
 }
 
-static bool ccid_deinit(void)
+static bool driver_deinit(void)
 {
     return true;
 }
@@ -243,20 +266,368 @@ static bool ccid_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result, 
     return true;
 }
 
-static const usbd_class_driver_t s_ccid_driver = {
-    .name = "CCID",
-    .init = ccid_init,
-    .deinit = ccid_deinit,
-    .reset = ccid_reset,
-    .open = ccid_open,
-    .control_xfer_cb = ccid_control_xfer_cb,
-    .xfer_cb = ccid_xfer_cb,
+
+/* ---- Drive: USB mass storage, bulk-only transport with a read-only SCSI disk ---- */
+
+#define MSC_CBW_SIGNATURE   0x43425355
+#define MSC_CSW_SIGNATURE   0x53425355
+#define MSC_CBW_LEN         31
+#define MSC_CSW_LEN         13
+#define MSC_REQUEST_RESET   0xFF
+#define MSC_REQUEST_MAX_LUN 0xFE
+
+#define SCSI_TEST_UNIT_READY        0x00
+#define SCSI_REQUEST_SENSE          0x03
+#define SCSI_INQUIRY                0x12
+#define SCSI_MODE_SENSE_6           0x1A
+#define SCSI_START_STOP_UNIT        0x1B
+#define SCSI_PREVENT_ALLOW_REMOVAL  0x1E
+#define SCSI_READ_FORMAT_CAPACITIES 0x23
+#define SCSI_READ_CAPACITY_10       0x25
+#define SCSI_READ_10                0x28
+#define SCSI_WRITE_10               0x2A
+#define SCSI_VERIFY_10              0x2F
+#define SCSI_SYNC_CACHE_10          0x35
+#define SCSI_MODE_SENSE_10          0x5A
+
+#define SENSE_NOT_READY             0x02
+#define SENSE_ILLEGAL_REQUEST       0x05
+#define SENSE_DATA_PROTECT          0x07
+#define ASC_INVALID_COMMAND         0x20
+#define ASC_LBA_OUT_OF_RANGE        0x21
+#define ASC_WRITE_PROTECTED         0x27
+#define ASC_MEDIUM_NOT_PRESENT      0x3A
+
+typedef enum {
+    MSC_STAGE_CMD,
+    MSC_STAGE_DATA_IN,
+    MSC_STAGE_DATA_OUT,
+    MSC_STAGE_STATUS,
+    MSC_STAGE_NEED_RESET,
+} msc_stage_t;
+
+static const usb_hid_disk_t *volatile s_disk;
+static volatile bool s_disk_ejected;
+static uint8_t s_msc_ep_in;
+static uint8_t s_msc_ep_out;
+static msc_stage_t s_msc_stage;
+static CFG_TUSB_MEM_ALIGN uint8_t s_msc_cbw[MSC_EP_SIZE];
+static CFG_TUSB_MEM_ALIGN uint8_t s_msc_csw[MSC_CSW_LEN];
+static CFG_TUSB_MEM_ALIGN uint8_t s_msc_buf[USB_HID_DISK_BLOCK_SIZE];
+static uint32_t s_msc_tag;
+static uint32_t s_msc_expected;     /* dCBWDataTransferLength */
+static uint32_t s_msc_done;         /* data bytes moved so far */
+static uint8_t s_msc_status;
+static uint32_t s_msc_lba;          /* next block of a READ(10) */
+static uint32_t s_msc_blocks;       /* blocks of it still to read */
+static uint8_t s_sense_key;
+static uint8_t s_sense_asc;
+
+static uint32_t get_be32(const uint8_t *p)
+{
+    return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3];
+}
+
+static uint32_t get_le32(const uint8_t *p)
+{
+    return ((uint32_t)p[3] << 24) | ((uint32_t)p[2] << 16) | ((uint32_t)p[1] << 8) | p[0];
+}
+
+static void put_be32(uint8_t *p, uint32_t v)
+{
+    p[0] = v >> 24;
+    p[1] = v >> 16;
+    p[2] = v >> 8;
+    p[3] = v;
+}
+
+static void put_le32(uint8_t *p, uint32_t v)
+{
+    p[0] = v;
+    p[1] = v >> 8;
+    p[2] = v >> 16;
+    p[3] = v >> 24;
+}
+
+static bool msc_receive_cbw(uint8_t rhport)
+{
+    s_msc_stage = MSC_STAGE_CMD;
+    return usbd_edpt_xfer(rhport, s_msc_ep_out, s_msc_cbw, sizeof(s_msc_cbw), false);
+}
+
+static bool msc_send_csw(uint8_t rhport)
+{
+    s_msc_stage = MSC_STAGE_STATUS;
+    uint32_t residue = s_msc_expected > s_msc_done ? s_msc_expected - s_msc_done : 0;
+    put_le32(s_msc_csw, MSC_CSW_SIGNATURE);
+    put_le32(s_msc_csw + 4, s_msc_tag);
+    put_le32(s_msc_csw + 8, residue);
+    s_msc_csw[12] = s_msc_status;
+    return usbd_edpt_xfer(rhport, s_msc_ep_in, s_msc_csw, MSC_CSW_LEN, false);
+}
+
+/* Data phase over: a host that expected more data gets a stall first and the status after it clears. */
+static bool msc_finish(uint8_t rhport, bool data_in)
+{
+    s_msc_stage = MSC_STAGE_STATUS;
+    if (data_in && s_msc_done < s_msc_expected) {
+        usbd_edpt_stall(rhport, s_msc_ep_in);
+        return true;
+    }
+    return msc_send_csw(rhport);
+}
+
+static void msc_fail(uint8_t key, uint8_t asc)
+{
+    s_msc_status = 1;
+    s_sense_key = key;
+    s_sense_asc = asc;
+}
+
+static bool msc_send_data(uint8_t rhport, uint32_t len)
+{
+    uint32_t left = s_msc_expected - s_msc_done;
+    if (len > left) {
+        len = left;
+    }
+    if (len == 0) {
+        return msc_finish(rhport, true);
+    }
+    s_msc_stage = MSC_STAGE_DATA_IN;
+    return usbd_edpt_xfer(rhport, s_msc_ep_in, s_msc_buf, (uint16_t)len, false);
+}
+
+static bool msc_read_next(uint8_t rhport)
+{
+    const usb_hid_disk_t *disk = s_disk;
+    if (s_msc_blocks == 0 || s_msc_done >= s_msc_expected || !disk) {
+        return msc_finish(rhport, true);
+    }
+    disk->read(s_msc_lba++, s_msc_buf, disk->ctx);
+    s_msc_blocks--;
+    return msc_send_data(rhport, USB_HID_DISK_BLOCK_SIZE);
+}
+
+/* Fills s_msc_buf for commands with a fixed reply and returns its length; 0 for unknown ones. */
+static uint32_t msc_reply(const uint8_t *cmd, uint32_t block_count)
+{
+    uint8_t *b = s_msc_buf;
+    memset(b, 0, 36);
+    switch (cmd[0]) {
+    case SCSI_INQUIRY:
+        b[1] = 0x80;                    /* removable */
+        b[2] = 0x04;                    /* SPC-2 */
+        b[3] = 0x02;
+        b[4] = 36 - 5;
+        memcpy(b + 8, "Keyling ", 8);
+        memcpy(b + 16, "Drive           ", 16);
+        memcpy(b + 32, "1.0 ", 4);
+        return 36;
+    case SCSI_REQUEST_SENSE:
+        b[0] = 0x70;
+        b[2] = s_sense_key;
+        b[7] = 10;
+        b[12] = s_sense_asc;
+        s_sense_key = 0;
+        s_sense_asc = 0;
+        return 18;
+    case SCSI_MODE_SENSE_6:
+        b[0] = 3;
+        b[2] = 0x80;                    /* write protected */
+        return 4;
+    case SCSI_MODE_SENSE_10:
+        b[1] = 6;
+        b[3] = 0x80;
+        return 8;
+    case SCSI_READ_CAPACITY_10:
+        put_be32(b, block_count - 1);
+        put_be32(b + 4, USB_HID_DISK_BLOCK_SIZE);
+        return 8;
+    case SCSI_READ_FORMAT_CAPACITIES:
+        b[3] = 8;
+        put_be32(b + 4, block_count);
+        put_be32(b + 8, USB_HID_DISK_BLOCK_SIZE);
+        b[8] = 0x02;                    /* formatted media */
+        return 12;
+    }
+    return 0;
+}
+
+static bool msc_command(uint8_t rhport, uint32_t len)
+{
+    const uint8_t *cbw = s_msc_cbw;
+    if (len != MSC_CBW_LEN || get_le32(cbw) != MSC_CBW_SIGNATURE) {
+        s_msc_stage = MSC_STAGE_NEED_RESET;
+        usbd_edpt_stall(rhport, s_msc_ep_in);
+        usbd_edpt_stall(rhport, s_msc_ep_out);
+        return true;
+    }
+    s_msc_tag = get_le32(cbw + 4);
+    s_msc_expected = get_le32(cbw + 8);
+    s_msc_done = 0;
+    s_msc_status = 0;
+    s_msc_blocks = 0;
+    bool data_in = (cbw[12] & 0x80) != 0;
+    const uint8_t *cmd = cbw + 15;
+    const usb_hid_disk_t *disk = s_disk;
+    bool ready = disk && !s_disk_ejected;
+
+    switch (cmd[0]) {
+    case SCSI_TEST_UNIT_READY:
+        if (!ready) {
+            msc_fail(SENSE_NOT_READY, ASC_MEDIUM_NOT_PRESENT);
+        }
+        break;
+    case SCSI_START_STOP_UNIT:
+        if (cmd[4] & 0x02) {            /* load or eject */
+            s_disk_ejected = !(cmd[4] & 0x01);
+        }
+        break;
+    case SCSI_PREVENT_ALLOW_REMOVAL:
+    case SCSI_VERIFY_10:
+    case SCSI_SYNC_CACHE_10:
+        break;
+    case SCSI_READ_10: {
+        uint32_t lba = get_be32(cmd + 2);
+        uint32_t count = ((uint32_t)cmd[7] << 8) | cmd[8];
+        if (!ready) {
+            msc_fail(SENSE_NOT_READY, ASC_MEDIUM_NOT_PRESENT);
+        } else if (lba + count > disk->block_count) {
+            msc_fail(SENSE_ILLEGAL_REQUEST, ASC_LBA_OUT_OF_RANGE);
+        } else {
+            s_msc_lba = lba;
+            s_msc_blocks = count;
+            return msc_read_next(rhport);
+        }
+        break;
+    }
+    case SCSI_WRITE_10:
+        msc_fail(SENSE_DATA_PROTECT, ASC_WRITE_PROTECTED);
+        break;
+    default: {
+        uint32_t reply = disk ? msc_reply(cmd, disk->block_count) : 0;
+        if (reply) {
+            return msc_send_data(rhport, reply);
+        }
+        msc_fail(SENSE_ILLEGAL_REQUEST, ASC_INVALID_COMMAND);
+        break;
+    }
+    }
+
+    /* Data the host sends with a refused command is read and dropped. */
+    if (!data_in && s_msc_expected > 0) {
+        s_msc_stage = MSC_STAGE_DATA_OUT;
+        return usbd_edpt_xfer(rhport, s_msc_ep_out, s_msc_buf, sizeof(s_msc_buf), false);
+    }
+    return msc_finish(rhport, data_in);
+}
+
+static void msc_reset(uint8_t rhport)
+{
+    s_msc_ep_in = 0;
+    s_msc_ep_out = 0;
+    s_msc_stage = MSC_STAGE_CMD;
+}
+
+static uint16_t msc_open(uint8_t rhport, tusb_desc_interface_t const *itf, uint16_t max_len)
+{
+    TU_VERIFY(itf->bInterfaceClass == TUSB_CLASS_MSC, 0);
+    uint16_t len = sizeof(tusb_desc_interface_t) + 2 * sizeof(tusb_desc_endpoint_t);
+    TU_VERIFY(max_len >= len, 0);
+    TU_ASSERT(usbd_open_edpt_pair(rhport, tu_desc_next(itf), 2, TUSB_XFER_BULK, &s_msc_ep_out, &s_msc_ep_in), 0);
+    TU_ASSERT(msc_receive_cbw(rhport), 0);
+    return len;
+}
+
+static bool msc_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_request_t const *request)
+{
+    if (stage != CONTROL_STAGE_SETUP) {
+        return true;
+    }
+    /* Recovery after a stall: the host clears it, then the pending status or next command follows. */
+    if (request->bmRequestType_bit.type == TUSB_REQ_TYPE_STANDARD &&
+        request->bmRequestType_bit.recipient == TUSB_REQ_RCPT_ENDPOINT &&
+        request->bRequest == TUSB_REQ_CLEAR_FEATURE && request->wValue == TUSB_REQ_FEATURE_EDPT_HALT) {
+        uint8_t ep = tu_u16_low(request->wIndex);
+        if (s_msc_stage == MSC_STAGE_NEED_RESET) {
+            usbd_edpt_stall(rhport, ep);
+        } else if (ep == s_msc_ep_in && s_msc_stage == MSC_STAGE_STATUS) {
+            msc_send_csw(rhport);
+        } else if (ep == s_msc_ep_out && s_msc_stage == MSC_STAGE_CMD && usbd_edpt_ready(rhport, s_msc_ep_out)) {
+            msc_receive_cbw(rhport);
+        }
+        return true;
+    }
+    if (request->bmRequestType_bit.type != TUSB_REQ_TYPE_CLASS) {
+        return false;
+    }
+    static CFG_TUSB_MEM_ALIGN uint8_t max_lun;
+    switch (request->bRequest) {
+    case MSC_REQUEST_RESET:
+        s_msc_stage = MSC_STAGE_CMD;
+        if (usbd_edpt_ready(rhport, s_msc_ep_out)) {
+            msc_receive_cbw(rhport);
+        }
+        return tud_control_status(rhport, request);
+    case MSC_REQUEST_MAX_LUN:
+        max_lun = 0;
+        return tud_control_xfer(rhport, request, &max_lun, 1);
+    }
+    return false;
+}
+
+static bool msc_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes)
+{
+    if (ep_addr == s_msc_ep_out) {
+        if (s_msc_stage == MSC_STAGE_CMD) {
+            return msc_command(rhport, xferred_bytes);
+        }
+        if (s_msc_stage == MSC_STAGE_DATA_OUT) {
+            s_msc_done += xferred_bytes;
+            if (s_msc_done < s_msc_expected && xferred_bytes == sizeof(s_msc_buf)) {
+                return usbd_edpt_xfer(rhport, s_msc_ep_out, s_msc_buf, sizeof(s_msc_buf), false);
+            }
+            return msc_send_csw(rhport);
+        }
+        return true;
+    }
+    if (ep_addr == s_msc_ep_in) {
+        if (s_msc_stage == MSC_STAGE_DATA_IN) {
+            s_msc_done += xferred_bytes;
+            return msc_read_next(rhport);
+        }
+        if (s_msc_stage == MSC_STAGE_STATUS) {
+            return msc_receive_cbw(rhport);
+        }
+    }
+    return true;
+}
+
+static const usbd_class_driver_t s_app_drivers[] = {
+    {
+        .name = "CCID",
+        .init = driver_init,
+        .deinit = driver_deinit,
+        .reset = ccid_reset,
+        .open = ccid_open,
+        .control_xfer_cb = ccid_control_xfer_cb,
+        .xfer_cb = ccid_xfer_cb,
+    },
+    {
+        .name = "MSC",
+        .init = driver_init,
+        .deinit = driver_deinit,
+        .reset = msc_reset,
+        .open = msc_open,
+        .control_xfer_cb = msc_control_xfer_cb,
+        .xfer_cb = msc_xfer_cb,
+    },
 };
 
 usbd_class_driver_t const *usbd_app_driver_get_cb(uint8_t *driver_count)
 {
-    *driver_count = 1;
-    return &s_ccid_driver;
+    *driver_count = sizeof(s_app_drivers) / sizeof(s_app_drivers[0]);
+    return s_app_drivers;
 }
 
 void usb_hid_ccid_set_callbacks(usb_hid_ccid_rx_cb_t rx, usb_hid_ccid_tx_done_cb_t tx_done, void *ctx)
@@ -309,6 +680,7 @@ esp_err_t usb_hid_start(usb_hid_mount_cb_t cb, void *ctx)
     snprintf(s_serial, sizeof(s_serial), "%02X%02X%02X%02X%02X%02X",
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
+    memcpy(s_config_desc, s_config_card, sizeof(s_config_card));
     tinyusb_config_t cfg = TINYUSB_DEFAULT_CONFIG(usb_event_cb);
     cfg.descriptor.device = &s_device_desc;
     cfg.descriptor.full_speed_config = s_config_desc;
@@ -317,6 +689,36 @@ esp_err_t usb_hid_start(usb_hid_mount_cb_t cb, void *ctx)
     ESP_RETURN_ON_ERROR(tinyusb_driver_install(&cfg), TAG, "driver install");
     ESP_LOGI(TAG, "started");
     return ESP_OK;
+}
+
+/* Long enough for hosts to register the unplug before the device comes back changed. */
+#define REENUMERATE_GAP_MS  300
+
+esp_err_t usb_hid_set_disk(const usb_hid_disk_t *disk)
+{
+    ESP_RETURN_ON_FALSE(!disk || (disk->read && disk->block_count), ESP_ERR_INVALID_ARG, TAG, "disk");
+    if (disk == s_disk) {
+        return ESP_OK;
+    }
+    tud_disconnect();
+    vTaskDelay(pdMS_TO_TICKS(REENUMERATE_GAP_MS));
+    s_disk = disk;
+    s_disk_ejected = false;
+    if (disk) {
+        memcpy(s_config_desc, s_config_disk, sizeof(s_config_disk));
+        s_device_desc.idProduct = USB_PID_DISK;
+    } else {
+        memcpy(s_config_desc, s_config_card, sizeof(s_config_card));
+        s_device_desc.idProduct = USB_PID;
+    }
+    tud_connect();
+    ESP_LOGI(TAG, "%s", disk ? "drive in place of the smartcard" : "smartcard back");
+    return ESP_OK;
+}
+
+bool usb_hid_disk_ejected(void)
+{
+    return s_disk_ejected;
 }
 
 bool usb_hid_is_mounted(void)
