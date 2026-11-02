@@ -14,6 +14,8 @@
 static const char *TAG = "usb_hid";
 
 #define USB_PID                 0x4F01
+/* The drive mode has its own product ID, so hosts keep separate driver bindings for each set. */
+#define USB_PID_DISK            0x4F02
 /* Changes whenever the interface set does, so hosts don't reuse cached driver bindings. */
 #define USB_BCD_DEVICE          0x0201
 #define HID_EP_SIZE             16
@@ -40,6 +42,9 @@ enum {
 #define EPNUM_CCID_OUT  0x03
 #define EPNUM_CCID_IN   0x83
 #define EPNUM_CCID_INT  0x84
+#define EPNUM_MSC_OUT   0x03
+#define EPNUM_MSC_IN    0x83
+#define MSC_EP_SIZE     64
 
 enum {
     STRID_LANGID = 0,
@@ -49,6 +54,7 @@ enum {
     STRID_HID,
     STRID_FIDO,
     STRID_CCID,
+    STRID_DISK,
     STRID_COUNT,
 };
 
@@ -86,18 +92,33 @@ static const uint8_t s_fido_report_desc[] = {
     TUD_HID_REPORT_DESC_FIDO_U2F(USB_HID_FIDO_REPORT_SIZE),
 };
 
-#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN + TUD_HID_INOUT_DESC_LEN + TUD_CCID_DESC_LEN)
+#define CONFIG_HEAD_LEN     (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN + TUD_HID_INOUT_DESC_LEN)
+#define CONFIG_TOTAL_LEN    (CONFIG_HEAD_LEN + TUD_CCID_DESC_LEN)
+#define CONFIG_DISK_LEN     (CONFIG_HEAD_LEN + TUD_MSC_DESC_LEN)
 
-static const uint8_t s_config_desc[] = {
-    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
-    TUD_HID_DESCRIPTOR(ITF_NUM_HID, STRID_HID, HID_ITF_PROTOCOL_NONE, sizeof(s_hid_report_desc), EPNUM_HID, HID_EP_SIZE, 1),
-    TUD_HID_INOUT_DESCRIPTOR(ITF_NUM_FIDO, STRID_FIDO, HID_ITF_PROTOCOL_NONE, sizeof(s_fido_report_desc),
-                             EPNUM_FIDO_OUT, EPNUM_FIDO_IN, USB_HID_FIDO_REPORT_SIZE, FIDO_POLL_MS),
+#define CONFIG_HEAD(total_len)                                                                                    \
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, total_len, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),               \
+    TUD_HID_DESCRIPTOR(ITF_NUM_HID, STRID_HID, HID_ITF_PROTOCOL_NONE, sizeof(s_hid_report_desc), EPNUM_HID,      \
+                       HID_EP_SIZE, 1),                                                                           \
+    TUD_HID_INOUT_DESCRIPTOR(ITF_NUM_FIDO, STRID_FIDO, HID_ITF_PROTOCOL_NONE, sizeof(s_fido_report_desc),          \
+                             EPNUM_FIDO_OUT, EPNUM_FIDO_IN, USB_HID_FIDO_REPORT_SIZE, FIDO_POLL_MS)
+
+static const uint8_t s_config_card[] = {
+    CONFIG_HEAD(CONFIG_TOTAL_LEN),
     TUD_CCID_DESCRIPTOR(ITF_NUM_CCID, STRID_CCID, EPNUM_CCID_OUT, EPNUM_CCID_IN, EPNUM_CCID_INT, USB_HID_CCID_PACKET_SIZE,
                         USB_HID_CCID_MAX_MESSAGE, USB_HID_CCID_MAX_MESSAGE - 10),
 };
 
-static const tusb_desc_device_t s_device_desc = {
+/* The endpoint budget has no room for both: the drive takes the smartcard's place. */
+static const uint8_t s_config_disk[] = {
+    CONFIG_HEAD(CONFIG_DISK_LEN),
+    TUD_MSC_DESCRIPTOR(ITF_NUM_CCID, STRID_DISK, EPNUM_MSC_OUT, EPNUM_MSC_IN, MSC_EP_SIZE),
+};
+
+/* TinyUSB keeps pointers to these and reads them at each enumeration. */
+static uint8_t s_config_desc[CONFIG_TOTAL_LEN > CONFIG_DISK_LEN ? CONFIG_TOTAL_LEN : CONFIG_DISK_LEN];
+
+static tusb_desc_device_t s_device_desc = {
     .bLength = sizeof(tusb_desc_device_t),
     .bDescriptorType = TUSB_DESC_DEVICE,
     .bcdUSB = 0x0200,
@@ -121,6 +142,7 @@ static const char *s_strings[STRID_COUNT] = {
     [STRID_HID] = "Keyboard",
     [STRID_FIDO] = "Security key",
     [STRID_CCID] = "Smartcard",
+    [STRID_DISK] = "Drive",
 };
 
 static SemaphoreHandle_t s_lock;
@@ -177,11 +199,11 @@ static usb_hid_ccid_rx_cb_t s_ccid_rx_cb;
 static usb_hid_ccid_tx_done_cb_t s_ccid_tx_done_cb;
 static void *s_ccid_ctx;
 
-static void ccid_init(void)
+static void driver_init(void)
 {
 }
 
-static bool ccid_deinit(void)
+static bool driver_deinit(void)
 {
     return true;
 }
@@ -243,20 +265,99 @@ static bool ccid_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result, 
     return true;
 }
 
-static const usbd_class_driver_t s_ccid_driver = {
-    .name = "CCID",
-    .init = ccid_init,
-    .deinit = ccid_deinit,
-    .reset = ccid_reset,
-    .open = ccid_open,
-    .control_xfer_cb = ccid_control_xfer_cb,
-    .xfer_cb = ccid_xfer_cb,
+
+/* ---- Drive: TinyUSB's MSC class (built here, see CMakeLists.txt) with a read-only disk ---- */
+
+static const usb_hid_disk_t *volatile s_disk;
+static volatile bool s_disk_ejected;
+
+void tud_msc_inquiry_cb(uint8_t lun, uint8_t vendor_id[8], uint8_t product_id[16], uint8_t product_rev[4])
+{
+    memcpy(vendor_id, "Keyling ", 8);
+    memcpy(product_id, "Drive           ", 16);
+    memcpy(product_rev, "1.0 ", 4);
+}
+
+bool tud_msc_test_unit_ready_cb(uint8_t lun)
+{
+    return s_disk && !s_disk_ejected;
+}
+
+void tud_msc_capacity_cb(uint8_t lun, uint32_t *block_count, uint16_t *block_size)
+{
+    const usb_hid_disk_t *disk = s_disk;
+    *block_count = disk ? disk->block_count : 0;
+    *block_size = USB_HID_DISK_BLOCK_SIZE;
+}
+
+bool tud_msc_start_stop_cb(uint8_t lun, uint8_t power_condition, bool start, bool load_eject)
+{
+    if (load_eject) {
+        s_disk_ejected = !start;
+    }
+    return true;
+}
+
+bool tud_msc_is_writable_cb(uint8_t lun)
+{
+    return false;
+}
+
+int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void *buffer, uint32_t bufsize)
+{
+    const usb_hid_disk_t *disk = s_disk;
+    if (!disk || s_disk_ejected || offset >= USB_HID_DISK_BLOCK_SIZE) {
+        return TUD_MSC_RET_ERROR;
+    }
+    static uint8_t block[USB_HID_DISK_BLOCK_SIZE];
+    uint32_t len = USB_HID_DISK_BLOCK_SIZE - offset;
+    if (len > bufsize) {
+        len = bufsize;
+    }
+    if (lba >= disk->block_count) {
+        return TUD_MSC_RET_ERROR;
+    }
+    disk->read(lba, block, disk->ctx);
+    memcpy(buffer, block + offset, len);
+    return (int32_t)len;
+}
+
+int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset, uint8_t *buffer, uint32_t bufsize)
+{
+    return TUD_MSC_RET_ERROR;
+}
+
+int32_t tud_msc_scsi_cb(uint8_t lun, uint8_t const scsi_cmd[16], void *buffer, uint16_t bufsize)
+{
+    tud_msc_set_sense(lun, SCSI_SENSE_ILLEGAL_REQUEST, 0x20, 0x00);
+    return -1;
+}
+
+static const usbd_class_driver_t s_app_drivers[] = {
+    {
+        .name = "CCID",
+        .init = driver_init,
+        .deinit = driver_deinit,
+        .reset = ccid_reset,
+        .open = ccid_open,
+        .control_xfer_cb = ccid_control_xfer_cb,
+        .xfer_cb = ccid_xfer_cb,
+    },
+    {
+        .name = "MSC",
+        .init = mscd_init,
+        .deinit = mscd_deinit,
+        .reset = mscd_reset,
+        .open = mscd_open,
+        .control_xfer_cb = mscd_control_xfer_cb,
+        .xfer_cb = mscd_xfer_cb,
+    },
 };
 
 usbd_class_driver_t const *usbd_app_driver_get_cb(uint8_t *driver_count)
 {
-    *driver_count = 1;
-    return &s_ccid_driver;
+    *driver_count = sizeof(s_app_drivers) / sizeof(s_app_drivers[0]);
+    return s_app_drivers;
 }
 
 void usb_hid_ccid_set_callbacks(usb_hid_ccid_rx_cb_t rx, usb_hid_ccid_tx_done_cb_t tx_done, void *ctx)
@@ -309,6 +410,7 @@ esp_err_t usb_hid_start(usb_hid_mount_cb_t cb, void *ctx)
     snprintf(s_serial, sizeof(s_serial), "%02X%02X%02X%02X%02X%02X",
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
+    memcpy(s_config_desc, s_config_card, sizeof(s_config_card));
     tinyusb_config_t cfg = TINYUSB_DEFAULT_CONFIG(usb_event_cb);
     cfg.descriptor.device = &s_device_desc;
     cfg.descriptor.full_speed_config = s_config_desc;
@@ -317,6 +419,36 @@ esp_err_t usb_hid_start(usb_hid_mount_cb_t cb, void *ctx)
     ESP_RETURN_ON_ERROR(tinyusb_driver_install(&cfg), TAG, "driver install");
     ESP_LOGI(TAG, "started");
     return ESP_OK;
+}
+
+/* Long enough for hosts to register the unplug before the device comes back changed. */
+#define REENUMERATE_GAP_MS  300
+
+esp_err_t usb_hid_set_disk(const usb_hid_disk_t *disk)
+{
+    ESP_RETURN_ON_FALSE(!disk || (disk->read && disk->block_count), ESP_ERR_INVALID_ARG, TAG, "disk");
+    if (disk == s_disk) {
+        return ESP_OK;
+    }
+    tud_disconnect();
+    vTaskDelay(pdMS_TO_TICKS(REENUMERATE_GAP_MS));
+    s_disk = disk;
+    s_disk_ejected = false;
+    if (disk) {
+        memcpy(s_config_desc, s_config_disk, sizeof(s_config_disk));
+        s_device_desc.idProduct = USB_PID_DISK;
+    } else {
+        memcpy(s_config_desc, s_config_card, sizeof(s_config_card));
+        s_device_desc.idProduct = USB_PID;
+    }
+    tud_connect();
+    ESP_LOGI(TAG, "%s", disk ? "drive in place of the smartcard" : "smartcard back");
+    return ESP_OK;
+}
+
+bool usb_hid_disk_ejected(void)
+{
+    return s_disk_ejected;
 }
 
 bool usb_hid_is_mounted(void)

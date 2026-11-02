@@ -48,6 +48,9 @@ static const ui_app_t *const s_apps[] = {
 #if CONFIG_UI_APP_PROFILES
     &ui_app_profiles,
 #endif
+#if CONFIG_UI_APP_DRIVE
+    &ui_app_drive,
+#endif
     &ui_app_settings,
 #if CONFIG_UI_APP_EXAMPLE
     &ui_app_example,

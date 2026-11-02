@@ -26,6 +26,8 @@ void sim_button_tick(uint32_t now_ms);
 int sim_brightness(void);
 /* The status LED follows the Bluetooth state as on the dongle (app.c). */
 void sim_led_for_ble(ui_ble_state_t state);
+/** The computer ejects the Drive app's disk. */
+void sim_drive_eject(bool ejected);
 /* bsp_display_flip(): screenshots are turned with it, the window can't be. */
 bool sim_flipped(void);
 

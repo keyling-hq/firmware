@@ -59,7 +59,8 @@ opens. Text that fits never moves. Dialogs whose other items are hidden show a b
 |---|---|
 | Jiggler | moves the mouse every 2 s while running; hold to stop |
 | Profiles | switch Main/Phantom, per profile: use, start with this, erase (hold 3 s) |
-| Settings | type test, layout, speed, theme, pair new phone, forget phone, About, factory reset |
+| Settings | type test, layout, speed, theme, LED, pair new phone, forget phone, About, factory reset |
+| Drive (off by default) | shows a read-only USB drive with INFO.TXT in place of the smartcard; leaves when the computer ejects it, or hold to stop |
 
 About is a scrolling page with the firmware version, profile, phone and USB connection, Bluetooth
 name, security key status and the device's security state (keys, secure boot, flash encryption,
@@ -74,6 +75,7 @@ Each app except Settings (pairing and factory reset are there) has a Kconfig opt
 |---|---|---|
 | `CONFIG_UI_APP_JIGGLER` | Jiggler | on |
 | `CONFIG_UI_APP_PROFILES` | Profiles (without it, profiles still work from the phone) | on |
+| `CONFIG_UI_APP_DRIVE` | Drive: a test of the USB drive mode, the start of SD card access | off |
 | `CONFIG_UI_APP_EXAMPLE` | Template: every kind of menu option, doing nothing | off |
 
 Set them in `sdkconfig.defaults` (e.g. `# CONFIG_UI_APP_JIGGLER is not set`) or with

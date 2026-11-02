@@ -122,6 +122,18 @@ const char *fw_info_version(void)
     return "v0.2.0-sim";
 }
 
+static bool s_drive_ejected;
+
+void sim_drive_eject(bool ejected)
+{
+    s_drive_ejected = ejected;
+}
+
+bool usb_hid_disk_ejected(void)
+{
+    return s_drive_ejected;
+}
+
 esp_err_t usb_hid_mouse_report(uint8_t buttons, int8_t x, int8_t y, int8_t wheel, int8_t pan)
 {
     return ESP_OK;
@@ -155,6 +167,11 @@ void sim_led_for_ble(ui_ble_state_t state)
         s_led = pattern;
         s_led_start = lv_tick_get();
     }
+}
+
+void status_led_event(status_led_event_t event)
+{
+    printf("led event %d\n", event);
 }
 
 void status_led_base(status_led_pattern_t *pattern, uint32_t *elapsed_ms)

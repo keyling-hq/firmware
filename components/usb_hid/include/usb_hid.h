@@ -67,6 +67,25 @@ esp_err_t usb_hid_ccid_send(const uint8_t *data, size_t len);
  */
 esp_err_t usb_hid_ccid_notify(const uint8_t *data, size_t len);
 
+/* Drive (USB mass storage): a read-only disk that takes the smartcard's place while it is shown. */
+#define USB_HID_DISK_BLOCK_SIZE     512
+
+typedef struct {
+    uint32_t block_count;
+    /** Called from the USB task for each block the host reads. */
+    void (*read)(uint32_t lba, uint8_t block[USB_HID_DISK_BLOCK_SIZE], void *ctx);
+    void *ctx;
+} usb_hid_disk_t;
+
+/**
+ * Shows disk (it must stay valid until replaced) instead of the smartcard, or with NULL brings the
+ * smartcard back. The host sees the device unplugged and plugged in again. Blocks for 300 ms.
+ */
+esp_err_t usb_hid_set_disk(const usb_hid_disk_t *disk);
+
+/** True once the host has ejected the shown disk. */
+bool usb_hid_disk_ejected(void);
+
 #ifdef __cplusplus
 }
 #endif

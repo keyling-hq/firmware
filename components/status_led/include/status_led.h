@@ -26,6 +26,18 @@ typedef enum {
     STATUS_LED_ATTENTION_FIDO,  /* magenta double blink: a security key request waits for approval */
 } status_led_attention_t;
 
+/* One-shot patterns shown over the base pattern, which then carries on. */
+typedef enum {
+    STATUS_LED_EVENT_DRIVE_EJECTED, /* a teal to violet sweep fading out, twice */
+} status_led_event_t;
+
+/* Which patterns light the LED (a setting). */
+typedef enum {
+    STATUS_LED_LEVEL_ALL,
+    STATUS_LED_LEVEL_IMPORTANT,     /* only what asks for the user: pairing, errors, attention */
+    STATUS_LED_LEVEL_OFF,
+} status_led_level_t;
+
 esp_err_t status_led_start(void);
 
 /** Sets the base pattern; it restarts from the beginning. */
@@ -33,6 +45,11 @@ void status_led_set(status_led_pattern_t pattern);
 
 /** Overrides the base pattern until cleared with STATUS_LED_ATTENTION_NONE. */
 void status_led_attention(status_led_attention_t attention);
+
+/** Plays event once over the base pattern; attention still wins. */
+void status_led_event(status_led_event_t event);
+
+void status_led_set_level(status_led_level_t level);
 
 /* The base patterns' colors, for anything that shows them in step with the LED (the screen's
  * Bluetooth symbol). Channels go up to STATUS_LED_PEAK. */
@@ -44,6 +61,9 @@ typedef struct {
 
 /** The color of pattern at ms after it started; done once it stays dark. No side effects. */
 status_led_color_t status_led_render(status_led_pattern_t pattern, uint32_t ms, bool *done);
+
+/** The color of event at ms after it started; done once it is over. No side effects. */
+status_led_color_t status_led_render_event(status_led_event_t event, uint32_t ms, bool *done);
 
 /** The base pattern being shown and the time since it started. Callable from any task. */
 void status_led_base(status_led_pattern_t *pattern, uint32_t *elapsed_ms);

@@ -103,6 +103,40 @@ static const ui_choice_t s_themes = {
     .set = ui_theme_select,
 };
 
+/* ---- status LED ----------------------------------------------------------------------------- */
+
+static const char *const s_led_level_names[] = { "All", "Important", "Off" };
+#define LED_LEVEL_COUNT (sizeof(s_led_level_names) / sizeof(s_led_level_names[0]))
+
+static size_t led_level_count(void)
+{
+    return LED_LEVEL_COUNT;
+}
+
+static const char *led_level_name(size_t index)
+{
+    return s_led_level_names[index];
+}
+
+static size_t led_level_current(void)
+{
+    settings_t settings;
+    settings_get(&settings);
+    return settings.led_level < LED_LEVEL_COUNT ? settings.led_level : 0;
+}
+
+static void led_level_set(size_t index)
+{
+    ui_emit(UI_ACTION_SET_LED_LEVEL, (int)index);
+}
+
+static const ui_choice_t s_led_levels = {
+    .count = led_level_count,
+    .name = led_level_name,
+    .current = led_level_current,
+    .set = led_level_set,
+};
+
 /* ---- phone and reset ------------------------------------------------------------------------ */
 
 static void forget(intptr_t arg)
@@ -185,6 +219,7 @@ static const ui_option_t s_settings[] = {
     UI_CHOICE("Layout", &s_layouts),
     UI_OPTION(.kind = UI_OPT_CHOICE, .text = "Speed", .choice = &s_speeds, .value_fn = speed_value),
     UI_CHOICE("Theme", &s_themes),
+    UI_CHOICE("LED", &s_led_levels),
     UI_ACTION_ARG("Pair new phone", emit, UI_ACTION_PAIR_NEW),
     UI_CONFIRM("Forget phone", &s_forget),
     UI_PAGE("About", about),

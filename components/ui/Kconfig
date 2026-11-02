@@ -13,6 +13,13 @@ menu "Keyling UI"
             help
                 Without it, profiles can still be used from the phone.
 
+        config UI_APP_DRIVE
+            bool "Drive (USB drive in place of the smartcard, a test for now)"
+            default n
+            help
+                Shows a read-only drive with INFO.TXT while open; the smartcard is away meanwhile
+                and comes back when the app is left or the computer ejects the drive.
+
         config UI_APP_EXAMPLE
             bool "Template app"
             default n

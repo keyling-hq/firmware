@@ -12,6 +12,7 @@
  *   fido other|register|sign_in|select|reset|pgp_sign|pgp_decrypt|pgp_auth|profile_reset [RP_ID]
  *   fido_done ok|fail | profiles main|phantom [main|phantom] [open|new|waiting] | locked
  *   theme ID (candy, device, quiet with SIM_EXAMPLES) | scroll PX_PER_S | zoom N (PNG scale, default 4)
+ *   eject (the computer ejects the Drive app's disk)
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -112,6 +113,13 @@ static void apply_action(ui_action_t action, int arg)
         break;
     case UI_ACTION_FLIP_SCREEN:
         settings.screen_flipped = arg != 0;
+        settings_set(&settings);
+        break;
+    case UI_ACTION_SHOW_DRIVE:
+        sim_drive_eject(false);
+        break;
+    case UI_ACTION_SET_LED_LEVEL:
+        settings.led_level = (uint8_t)arg;
         settings_set(&settings);
         break;
     case UI_ACTION_SET_THEME:
@@ -287,6 +295,8 @@ static void command(char *line)
                         : strcmp(a3, "waiting") == 0 ? UI_PHANTOM_WAITING : UI_PHANTOM_OPEN;
         }
         ui_set_profiles(s_active, s_default, s_phantom);
+    } else if (strcmp(cmd, "eject") == 0) {
+        sim_drive_eject(true);
     } else if (strcmp(cmd, "locked") == 0) {
         ui_show_profile_locked();
     } else if (strcmp(cmd, "theme") == 0 && a1) {
@@ -353,10 +363,11 @@ static void run_window(void)
     }
     start_ui();
     printf("space: button | t: typing | p: pairing | f: security key request | x: deny it | u: USB | b: Bluetooth | "
-           "l: locked notice | k: profile (Main, Phantom, Phantom locked) | 1-9: theme | s: scroll speed | "
+           "l: locked notice | k: profile (Main, Phantom, Phantom locked) | e: eject drive | 1-9: theme | "
+           "s: scroll speed | "
            "esc: quit\n");
 
-    bool was[10] = { 0 };
+    bool was[11] = { 0 };
     bool theme_was[9] = { 0 };
     bool typing = false, pairing = false, usb = true;
     int ble = UI_BLE_CONNECTED;
@@ -410,6 +421,9 @@ static void run_window(void)
                 s_active = phantom && locked ? UI_PROFILE_MAIN : UI_PROFILE_PHANTOM;
                 s_phantom = phantom && !locked ? UI_PHANTOM_WAITING : UI_PHANTOM_OPEN;
                 ui_set_profiles(s_active, s_default, s_phantom);
+            }
+            if (key_edge('E', &was[10])) {
+                sim_drive_eject(true);
             }
             if (key_edge(SIM_KEY_ESC, &was[6])) {
                 break;

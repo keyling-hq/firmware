@@ -30,6 +30,7 @@
 #include "typer.h"
 #include "ui.h"
 #include "usb_hid.h"
+#include "vdisk.h"
 
 static const char *TAG = "app";
 
@@ -78,6 +79,7 @@ static void apply_settings(void)
     settings_get(&settings);
     typer_set_layout(layout_for(settings.layout));
     typer_set_timing(settings.key_press_ms, settings.key_release_ms);
+    status_led_set_level(settings.led_level <= STATUS_LED_LEVEL_OFF ? settings.led_level : STATUS_LED_LEVEL_ALL);
 }
 
 static void update_settings(void (*change)(settings_t *, int), int arg)
@@ -111,6 +113,13 @@ static void set_theme(settings_t *settings, int index)
 static void set_flipped(settings_t *settings, int flipped)
 {
     settings->screen_flipped = flipped != 0;
+}
+
+static void set_led_level(settings_t *settings, int level)
+{
+    if (level >= STATUS_LED_LEVEL_ALL && level <= STATUS_LED_LEVEL_OFF) {
+        settings->led_level = (uint8_t)level;
+    }
 }
 
 static void set_speed(settings_t *settings, int index)
@@ -170,6 +179,27 @@ static void log_diagnostics(void)
     ESP_LOGI(TAG, "---------------------");
 }
 
+static char s_drive_info[256];
+
+static void drive_read(uint32_t lba, uint8_t *block, void *ctx)
+{
+    vdisk_read(lba, block);
+}
+
+static void show_drive(bool show)
+{
+    static usb_hid_disk_t disk = { .read = drive_read };
+    if (show) {
+        int len = snprintf(s_drive_info, sizeof(s_drive_info), "Keyling\r\nFirmware: %s\r\n", fw_info_version());
+        const vdisk_file_t files[] = {
+            { "INFO.TXT", s_drive_info, (uint32_t)len },
+        };
+        vdisk_set_files(files, sizeof(files) / sizeof(files[0]));
+        disk.block_count = vdisk_block_count();
+    }
+    usb_hid_set_disk(show ? &disk : NULL);
+}
+
 /* Given by the confirmation of a profile reset the phone asked for. */
 static SemaphoreHandle_t s_profile_reset_confirm;
 
@@ -192,6 +222,12 @@ static void ui_action_cb(ui_action_t action, int arg)
         break;
     case UI_ACTION_FLIP_SCREEN:
         update_settings(set_flipped, arg);
+        break;
+    case UI_ACTION_SET_LED_LEVEL:
+        update_settings(set_led_level, arg);
+        break;
+    case UI_ACTION_SHOW_DRIVE:
+        show_drive(arg != 0);
         break;
     case UI_ACTION_ABORT_TYPING:
         protocol_abort();
