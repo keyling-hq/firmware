@@ -36,12 +36,14 @@ typedef struct {
 } ui_app_t;
 
 extern const ui_app_t ui_app_settings;
-extern const ui_app_t ui_app_drive;
 #if CONFIG_UI_APP_JIGGLER
 extern const ui_app_t ui_app_jiggler;
 #endif
 #if CONFIG_UI_APP_PROFILES
 extern const ui_app_t ui_app_profiles;
+#endif
+#if CONFIG_UI_APP_DRIVE
+extern const ui_app_t ui_app_drive;
 #endif
 #if CONFIG_UI_APP_EXAMPLE
 extern const ui_app_t ui_app_example;

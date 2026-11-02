@@ -69,7 +69,6 @@ add_executable(keyling_ui_sim
     ${FW}/components/ui/ui_nav.c
     ${FW}/components/ui/ui_input.c
     ${FW}/components/ui/ui_settings.c
-    ${FW}/components/ui/ui_drive.c
     ${FW}/components/ui/ui_theme_candy.c
     ${FW}/components/ui/ui_theme_device.c
     ${FW}/components/status_led/status_led_pattern.c
@@ -86,6 +85,7 @@ add_executable(keyling_ui_sim
 # where the sdkconfig doesn't have the option yet). SIM_EXAMPLES adds the template app and theme.
 set(UI_APP_JIGGLER ON)
 set(UI_APP_PROFILES ON)
+set(UI_APP_DRIVE OFF)
 set(UI_APP_EXAMPLE OFF)
 set(UI_THEME_EXAMPLE OFF)
 file(STRINGS ${SDKCONFIG} ui_lines REGEX "CONFIG_UI_[A-Z_]+")
@@ -104,6 +104,7 @@ endif()
 set(ui_optional
     UI_APP_JIGGLER ui_jiggler.c
     UI_APP_PROFILES ui_profiles.c
+    UI_APP_DRIVE ui_drive.c
     UI_APP_EXAMPLE ui_app_example.c
     UI_THEME_EXAMPLE ui_theme_example.c)
 while(ui_optional)
@@ -113,7 +114,8 @@ while(ui_optional)
         target_compile_definitions(keyling_ui_sim PRIVATE CONFIG_${option}=1)
     endif()
 endwhile()
-message(STATUS "apps: jiggler ${UI_APP_JIGGLER}, profiles ${UI_APP_PROFILES}, template ${UI_APP_EXAMPLE}; "
+message(STATUS "apps: jiggler ${UI_APP_JIGGLER}, profiles ${UI_APP_PROFILES}, drive ${UI_APP_DRIVE}, "
+               "template ${UI_APP_EXAMPLE}; "
                "example theme ${UI_THEME_EXAMPLE}")
 target_include_directories(keyling_ui_sim PRIVATE
     include
