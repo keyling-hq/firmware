@@ -79,6 +79,7 @@ static void apply_settings(void)
     settings_get(&settings);
     typer_set_layout(layout_for(settings.layout));
     typer_set_timing(settings.key_press_ms, settings.key_release_ms);
+    status_led_set_level(settings.led_level <= STATUS_LED_LEVEL_OFF ? settings.led_level : STATUS_LED_LEVEL_ALL);
 }
 
 static void update_settings(void (*change)(settings_t *, int), int arg)
@@ -112,6 +113,13 @@ static void set_theme(settings_t *settings, int index)
 static void set_flipped(settings_t *settings, int flipped)
 {
     settings->screen_flipped = flipped != 0;
+}
+
+static void set_led_level(settings_t *settings, int level)
+{
+    if (level >= STATUS_LED_LEVEL_ALL && level <= STATUS_LED_LEVEL_OFF) {
+        settings->led_level = (uint8_t)level;
+    }
 }
 
 static void set_speed(settings_t *settings, int index)
@@ -214,6 +222,9 @@ static void ui_action_cb(ui_action_t action, int arg)
         break;
     case UI_ACTION_FLIP_SCREEN:
         update_settings(set_flipped, arg);
+        break;
+    case UI_ACTION_SET_LED_LEVEL:
+        update_settings(set_led_level, arg);
         break;
     case UI_ACTION_SHOW_DRIVE:
         show_drive(arg != 0);

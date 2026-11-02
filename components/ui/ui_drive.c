@@ -1,18 +1,35 @@
 #include "ui_priv.h"
+#include "ui_input.h"
+#include "status_led.h"
 #include "usb_hid.h"
 
-#define POLL_MS 250
+#define POLL_MS         250
+#define EJECTED_SHOW_MS 1000
 
 static lv_timer_t *s_timer;
 static bool s_ejected;
 
+static void leave_cb(lv_timer_t *timer)
+{
+    ui_app_exit();
+}
+
+/* Once the computer ejects the drive there is nothing left to do here: the app leaves by itself. */
 static void poll_cb(lv_timer_t *timer)
 {
-    bool ejected = usb_hid_disk_ejected();
-    if (ejected != s_ejected) {
-        s_ejected = ejected;
-        ui_refresh();
+    if (!usb_hid_disk_ejected()) {
+        return;
     }
+    s_ejected = true;
+    status_led_event(STATUS_LED_EVENT_DRIVE_EJECTED);
+    if (!ui_screen_is_on()) {
+        ui_app_exit();
+        return;
+    }
+    lv_timer_set_cb(timer, leave_cb);
+    lv_timer_set_period(timer, EJECTED_SHOW_MS);
+    lv_timer_reset(timer);
+    ui_refresh();
 }
 
 static void start(void)

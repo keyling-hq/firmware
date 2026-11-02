@@ -104,6 +104,7 @@ With the window focused:
 | `b` | next Bluetooth state |
 | `l` | "profile locked" message |
 | `k` | next profile state: Main, Phantom, Phantom locked (waiting for the phone) |
+| `e` | the computer ejects the Drive app's disk |
 | `1`-`9` | switch theme (as the phone would, through settings) |
 | `s` | scrolling text speed: 20, 30, 40 (default) or 60 px/s; the console shows it |
 | `Esc` | quit |
@@ -126,7 +127,7 @@ start, with scrolling slowed to a stop). From the `firmware` folder, after a fil
 `theme candy`:
 
 ```
-simuild\keyling_ui_sim.exe --out resources\candy candy.txt sim\scriptseadme.txt
+sim\build\keyling_ui_sim.exe --out resources\candy candy.txt sim\scripts\readme.txt
 ```
 
 `tools/contact_sheet.py OUT.png COLUMNS IN.png...` arranges them into one image

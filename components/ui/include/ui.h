@@ -27,6 +27,7 @@ typedef enum {
     UI_ACTION_SET_THEME,            /* arg: theme index, see ui_theme_id(); save it in settings */
     UI_ACTION_FLIP_SCREEN,          /* arg: 1 if the picture is now turned by 180°; save it */
     UI_ACTION_SHOW_DRIVE,           /* arg: 1 shows the USB drive in place of the smartcard, 0 ends it */
+    UI_ACTION_SET_LED_LEVEL,        /* arg: status_led_level_t; save it in settings */
 } ui_action_t;
 
 typedef enum {

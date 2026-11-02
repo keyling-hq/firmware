@@ -22,6 +22,7 @@ typedef struct {
     char ble_name[SETTINGS_BLE_NAME_LEN];
     char theme[SETTINGS_THEME_LEN];     /* UI theme id; empty for the default */
     uint8_t screen_flipped;             /* the picture is turned by 180° */
+    uint8_t led_level;                  /* status_led_level_t: 0 all, 1 important only, 2 off */
 } settings_t;
 
 typedef struct {
