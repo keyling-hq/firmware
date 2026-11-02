@@ -35,8 +35,8 @@ Runs on the LilyGo T-Dongle-S3 (ESP32-S3).
 Copyright (C) 2026 the Keyling authors.
 
 This program is free software: you can redistribute it and/or modify it under the terms of the
-GNU General Public License as published by the Free Software Foundation, either version 2 of the
-License, or (at your option) any later version. See `LICENSE`.
+GNU General Public License, version 3 only, as published by the Free Software Foundation
+(SPDX: `GPL-3.0-only`). See `LICENSE`.
 
 Third-party code keeps its own license:
 
@@ -50,3 +50,4 @@ Third-party code keeps its own license:
 | ESP-IDF, NimBLE, esp_tinyusb, esp_lvgl_port, button (fetched at build time) | Apache-2.0 |
 | littlefs (fetched at build time) | BSD-3-Clause |
 | LVGL, TinyUSB (fetched at build time) | MIT |
+| Fonts built into LVGL: Montserrat; UNSCII; Font Awesome Free symbols (`LV_SYMBOL_*`) | OFL-1.1; public domain; CC BY 4.0 (icons) and OFL-1.1 (font) |
