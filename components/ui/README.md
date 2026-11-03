@@ -193,14 +193,19 @@ Security key prompts for a known site show its icon next to the site name the br
 stays the text to trust: an unknown or lookalike domain just gets no icon. The sites, their domains
 (subdomains match too, the longest match wins) and their icons are listed in
 `tools/site_icons.json`; icons come from [Simple Icons](https://simpleicons.org) (CC0), and brands
-missing there get a letter badge in their color. After editing the list:
+missing there get a letter badge in their color. Only sites that take security keys belong there:
+`--check` confirms each against [2fa.directory](https://2fa.directory) (security keys as a second
+factor) and [passkeys.directory](https://passkeys.directory); an entry they don't cover (a demo
+site, a sign-in provider) says why under `"unlisted"`. Sites whose passkeys only live on phones
+(app-only services) are left out. After editing the list:
 
 ```
 tools/.venv/Scripts/python -m pip install -r tools/requirements-icons.txt
+tools/.venv/Scripts/python tools/site_icons.py --check
 tools/.venv/Scripts/python tools/site_icons.py
 ```
 
-It rewrites `ui_site_table.c` (about 600 bytes of flash per icon).
+The second command rewrites `ui_site_table.c` (about 600 bytes of flash per icon).
 
 Fonts must be enabled in `sdkconfig.defaults` (`CONFIG_LV_FONT_*`). Screens have a 48 KB LVGL heap,
 shared by the screen being left and the one being built; the simulator prints its use with every

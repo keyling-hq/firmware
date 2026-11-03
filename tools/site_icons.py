@@ -3,12 +3,17 @@
 
     tools/.venv/Scripts/python -m pip install -r tools/requirements-icons.txt
     tools/.venv/Scripts/python tools/site_icons.py
+    tools/.venv/Scripts/python tools/site_icons.py --check
 
 Downloads the listed Simple Icons (CC0-1.0) at the pinned version, renders them with resvg to
 24x24 alpha masks and writes components/ui/ui_site_table.c. Sites without an icon get a badge,
 drawn by the theme from the badge text and the color.
+
+--check lists the sites that neither 2fa.directory (security keys as a second factor) nor
+passkeys.directory (passkeys) confirms, unless the entry says why under "unlisted".
 """
 
+import argparse
 import json
 import re
 import urllib.request
@@ -22,6 +27,8 @@ LIST = ROOT / "tools" / "site_icons.json"
 OUT = ROOT / "components" / "ui" / "ui_site_table.c"
 SIZE = 24
 CDN = "https://cdn.jsdelivr.net/npm/simple-icons@{version}/{path}"
+TWO_FA_DIRECTORY = "https://api.2fa.directory/v4/all.json"
+PASSKEYS_DIRECTORY = "https://passkeys-api.2fa.directory/v1/all.json"
 
 
 def fetch(version: str, path: str) -> bytes:
@@ -45,8 +52,34 @@ def c_string(text: str) -> str:
     return json.dumps(text, ensure_ascii=False)
 
 
+def fetch_json(url: str) -> dict:
+    request = urllib.request.Request(url, headers={"User-Agent": "keyling-site-icons"})
+    with urllib.request.urlopen(request) as response:
+        return json.loads(response.read())
+
+
+def check(sites: list[dict]) -> None:
+    two_fa, passkeys = fetch_json(TWO_FA_DIRECTORY), fetch_json(PASSKEYS_DIRECTORY)
+    confirmed = {d for d, e in two_fa.items() if "u2f" in e.get("methods", [])}
+    confirmed |= {d for d, e in passkeys.items() if e.get("mfa") or e.get("passwordless")}
+    missing = [
+        site["name"]
+        for site in sites
+        if "unlisted" not in site and not any(c == d or c.endswith("." + d) for c in confirmed for d in site["domains"])
+    ]
+    print("all confirmed" if not missing else "not confirmed: " + ", ".join(missing))
+    if missing:
+        raise SystemExit(1)
+
+
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Regenerate or check the security key prompt's site icons.")
+    parser.add_argument("--check", action="store_true", help="check the sites against the directories")
+    args = parser.parse_args()
     spec = json.loads(LIST.read_text(encoding="utf-8"))
+    if args.check:
+        check(spec["sites"])
+        return
     version = spec["simple_icons"]
     brands = {icon["slug"]: icon for icon in json.loads(fetch(version, "data/simple-icons.json"))}
 
