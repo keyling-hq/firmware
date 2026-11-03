@@ -18,6 +18,8 @@
 #define HEADER_H    14
 #define ROW_H       20
 #define ROW_STEP    22
+#define SITE_MARK   UI_SITE_ICON_SIZE
+#define RING        48
 
 /* Launcher parts after the tiles. */
 enum { L_NAME = 8, L_PROFILE_BOX, L_PROFILE, L_BLE, L_USB };
@@ -128,25 +130,49 @@ static void prompt_build(ui_menu_t *m)
 {
     lv_obj_t *arc = lv_arc_create(m->scr);
     lv_obj_remove_style_all(arc);
-    lv_obj_set_size(arc, 62, 62);
-    lv_obj_set_pos(arc, 8, 9);
+    lv_obj_set_size(arc, RING, RING);
+    lv_obj_set_pos(arc, 4, 5);
     lv_arc_set_bg_angles(arc, 0, 360);
     lv_arc_set_rotation(arc, 270);
     lv_arc_set_value(arc, 0);
     lv_obj_remove_flag(arc, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_arc_width(arc, 5, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(arc, 5, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(arc, 4, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(arc, 4, LV_PART_INDICATOR);
     lv_obj_set_style_arc_color(arc, lv_color_hex(CARD), LV_PART_MAIN);
     lv_obj_set_style_arc_color(arc, lv_color_hex(ui_tone_color(m->tone)), LV_PART_INDICATOR);
     lv_obj_set_style_arc_opa(arc, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_arc_opa(arc, LV_OPA_COVER, LV_PART_INDICATOR);
-    lv_obj_center(ui_label(arc, &lv_font_montserrat_20, INK, m->tone == UI_TONE_BAD ? LV_SYMBOL_TRASH : LV_SYMBOL_EYE_OPEN));
+    if (m->site) {
+        uint32_t color = ui_site_color(m->site, BG, INK);
+        lv_obj_center(ui_site_mark(arc, m->site, SITE_MARK, color, ui_ink_on(color, INK, BG), NULL));
+    } else {
+        lv_obj_center(ui_label(arc, &lv_font_montserrat_16, INK, m->tone == UI_TONE_BAD ? LV_SYMBOL_TRASH : LV_SYMBOL_EYE_OPEN));
+    }
     m->part[M_ARC] = arc;
 
-    lv_obj_set_pos(ui_label_scroll(m->scr, &lv_font_montserrat_10, DIM, m->title, UI_W - 82), 78, 12);
-    lv_obj_set_pos(ui_label_scroll(m->scr, &lv_font_montserrat_14, INK, m->subtitle, UI_W - 82), 78, 26);
+    /* 100 px: 11 characters a line, "signin.aws." included. */
+    int text_x = 4 + RING + 5;
+    int text_w = UI_W - text_x - 3;
+    lv_obj_set_pos(ui_label_scroll(m->scr, &lv_font_montserrat_10, DIM, m->title, text_w), text_x, 6);
+    /* The site name in full on up to two lines (broken after a dot where it can); longer ones
+     * slide along one line with a scroll bar. */
+    const lv_font_t *font = &ui_font_atkinson_mono_14;
+    lv_point_t size;
+    lv_text_get_size(&size, m->subtitle, font, 0, 2, text_w, LV_TEXT_FLAG_NONE);
+    if (size.y <= 2 * lv_font_get_line_height(font) + 2) {
+        lv_obj_t *site = ui_label(m->scr, font, INK, m->subtitle);
+        lv_obj_set_width(site, text_w);
+        lv_obj_set_style_text_line_space(site, 2, 0);
+        lv_label_set_long_mode(site, LV_LABEL_LONG_MODE_WRAP);
+        lv_obj_set_pos(site, text_x, 20);
+    } else {
+        lv_obj_t *site = ui_label_scroll(m->scr, font, INK, m->subtitle, text_w);
+        lv_obj_set_pos(site, text_x, 24);
+        lv_obj_t *track = ui_box(m->scr, text_x, 42, text_w, 2, CARD, 1);
+        ui_label_scroll_careful(site, ui_box(track, 0, 0, text_w, 2, lv_color_to_u32(ui_mix(CARD, DIM, 0.5f)) & 0xFFFFFF, 1));
+    }
     m->part[M_HINT] = ui_label(m->scr, &lv_font_montserrat_10, ui_tone_color(m->tone), m->items[0].text);
-    lv_obj_set_pos(m->part[M_HINT], 78, 52);
+    lv_obj_set_pos(m->part[M_HINT], 8, 64);
 }
 
 static void result_build(ui_menu_t *m)

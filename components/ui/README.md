@@ -179,13 +179,39 @@ distance from the middle. Helpers in `ui_theme.h`:
 |---|---|
 | `ui_box`, `ui_label` | plain objects without LVGL's default styles |
 | `ui_label_scroll` | one-line text that scrolls by the rules above; `ui_label_scroll_align`, `ui_label_scroll_fit` |
+| `ui_label_scroll_careful` | text to check, like a site name: slides to its end and back with pauses, faster for longer text (20–50 px/s), with an optional thin scroll bar |
 | `ui_label_set_text` | changes the text of either kind of label (e.g. `m->big_label` during an update) |
 | `ui_scroll_activate` | starts or stops scrolling text in a subtree (the shared code does it for items) |
 | `ui_ticker` | a text page scrolling up slowly in a loop |
 | `ui_more_hint` | the bobbing arrow for dialogs with hidden items |
 | `ui_tone_color`, `ui_tone_symbol`, `ui_usb_color` | colors and symbols by state |
 | `ui_ble_color` | the Bluetooth symbol in step with the status LED, for themes in color |
+| `ui_site_mark`, `ui_site_color`, `ui_ink_on` | a known site's icon or letter badge on security key prompts (`m->site`), in a color that shows on the background |
 
-Fonts must be enabled in `sdkconfig.defaults` (`CONFIG_LV_FONT_*`). Screens have a 48 KB LVGL heap,
-shared by the screen being left and the one being built; the simulator prints its use with every
-screenshot.
+### Site icons
+
+Security key prompts for a known site show its icon next to the site name the browser sent, which
+stays the text to trust: an unknown or lookalike domain just gets no icon. The sites, their domains
+(subdomains match too, the longest match wins) and their icons are listed in
+`tools/site_icons.json`; icons come from [Simple Icons](https://simpleicons.org) (CC0), and brands
+missing there get a letter badge in their color. Only sites that take security keys belong there:
+`--check` confirms each against [2fa.directory](https://2fa.directory) (security keys as a second
+factor) and [passkeys.directory](https://passkeys.directory); an entry they don't cover (a demo
+site, a sign-in provider) says why under `"unlisted"`. Sites whose passkeys only live on phones
+(app-only services) are left out. After editing the list:
+
+```
+tools/.venv/Scripts/python -m pip install -r tools/requirements-icons.txt
+tools/.venv/Scripts/python tools/site_icons.py --check
+tools/.venv/Scripts/python tools/site_icons.py
+```
+
+The second command rewrites `ui_site_table.c` (about 800 bytes of flash per icon).
+
+Fonts must be enabled in `sdkconfig.defaults` (`CONFIG_LV_FONT_*`), or converted into `fonts/` like
+`ui_font_atkinson_mono_14` (Atkinson Hyperlegible Mono, for site names: monospaced, with every
+look-alike character distinct) with LVGL's converter, the options at the top of the file:
+`npx lv_font_conv@1.5.3 --font FONT.ttf -r 0x20-0x7E --size 14 --bpp 4 --format lvgl --no-compress`.
+
+Screens have a 48 KB LVGL heap, shared by the screen being left and the one being built; the
+simulator prints its use with every screenshot.

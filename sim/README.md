@@ -98,7 +98,7 @@ With the window focused:
 | Space | the button: tap = click, two quick taps = double click, hold 0.6 s = hold |
 | `t` | typing on/off |
 | `p` | pairing window (passkey and QR code) |
-| `f` | security key request ("Sign in to github.com") |
+| `f` | security key request; each press shows the next site name (short, long, look-alikes) |
 | `x` | the security key request ends without approval ("Not approved") |
 | `u` | USB connected/disconnected |
 | `b` | next Bluetooth state |

@@ -69,8 +69,11 @@ add_executable(keyling_ui_sim
     ${FW}/components/ui/ui_nav.c
     ${FW}/components/ui/ui_input.c
     ${FW}/components/ui/ui_settings.c
+    ${FW}/components/ui/ui_sites.c
+    ${FW}/components/ui/ui_site_table.c
     ${FW}/components/ui/ui_theme_candy.c
     ${FW}/components/ui/ui_theme_device.c
+    ${FW}/components/ui/fonts/ui_font_atkinson_mono_14.c
     ${FW}/components/status_led/status_led_pattern.c
     ${FW}/components/keymap/keymap.c
     ${FW}/components/keymap/keymap_layouts.c
@@ -114,6 +117,7 @@ while(ui_optional)
         target_compile_definitions(keyling_ui_sim PRIVATE CONFIG_${option}=1)
     endif()
 endwhile()
+target_compile_definitions(keyling_ui_sim PRIVATE LV_LVGL_H_INCLUDE_SIMPLE)
 message(STATUS "apps: jiggler ${UI_APP_JIGGLER}, profiles ${UI_APP_PROFILES}, drive ${UI_APP_DRIVE}, "
                "template ${UI_APP_EXAMPLE}; "
                "example theme ${UI_THEME_EXAMPLE}")

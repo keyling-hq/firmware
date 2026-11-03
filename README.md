@@ -51,3 +51,5 @@ Third-party code keeps its own license:
 | littlefs (fetched at build time) | BSD-3-Clause |
 | LVGL, TinyUSB (fetched at build time) | MIT |
 | Fonts built into LVGL: Montserrat; UNSCII; Font Awesome Free symbols (`LV_SYMBOL_*`) | OFL-1.1; public domain; CC BY 4.0 (icons) and OFL-1.1 (font) |
+| `components/ui/fonts/ui_font_atkinson_mono_14.c` (Atkinson Hyperlegible Mono) | OFL-1.1, see `components/ui/fonts/OFL.txt` |
+| `components/ui/ui_site_table.c` (site icons, generated from Simple Icons) | CC0-1.0; the logos are trademarks of their owners, shown only to identify the site |

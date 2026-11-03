@@ -4,6 +4,7 @@
  */
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 #include "ui_theme.h"
 
 #define BG      0xFF8A1E
@@ -140,8 +141,19 @@ static void prompt_build(ui_menu_t *m)
     status_bar(m->scr, "Security key", NULL, NULL);
     lv_obj_t *d = ui_box(m->scr, 4, 15, UI_W - 8, 61, BG, 0);
     frame(d, 1);
-    lv_obj_set_pos(ui_label_scroll(d, &lv_font_unscii_8, FG, m->title, UI_W - 20), 5, 5);
-    lv_obj_set_pos(ui_label_scroll(d, &lv_font_unscii_16, FG, m->subtitle, UI_W - 20), 5, 17);
+    int text_w = UI_W - 20;
+    if (m->site) {
+        const lv_font_t *font = strlen(m->site->badge) > 1 ? &lv_font_unscii_8 : &lv_font_unscii_16;
+        lv_obj_t *mark = ui_site_mark(d, m->site, UI_SITE_ICON_SIZE, FG, BG, font);
+        lv_obj_align(mark, LV_ALIGN_TOP_RIGHT, -4, 4);
+        lv_obj_update_layout(mark);
+        text_w -= lv_obj_get_width(mark) + 4;
+    }
+    lv_obj_set_pos(ui_label_scroll(d, &lv_font_unscii_8, FG, m->title, text_w), 5, 5);
+    lv_obj_t *site = ui_label_scroll(d, &lv_font_unscii_16, FG, m->subtitle, text_w);
+    lv_obj_set_pos(site, 5, 17);
+    lv_obj_t *track = ui_box(d, 5, 36, text_w, 2, lv_color_to_u32(ui_mix(BG, FG, 0.3f)) & 0xFFFFFF, 0);
+    ui_label_scroll_careful(site, ui_box(track, 0, 0, text_w, 2, FG, 0));
     lv_obj_t *segs = ui_box(d, 6, 40, SEGMENTS * 12, 6, BG, 0);
     lv_obj_set_style_bg_opa(segs, LV_OPA_TRANSP, 0);
     for (int i = 0; i < SEGMENTS; i++) {
