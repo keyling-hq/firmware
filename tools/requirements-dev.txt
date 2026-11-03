@@ -1,3 +1,4 @@
 -r requirements.txt
+-r requirements-icons.txt
 ruff==0.17.2
 pyright==1.1.414
