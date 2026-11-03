@@ -205,7 +205,7 @@ tools/.venv/Scripts/python tools/site_icons.py --check
 tools/.venv/Scripts/python tools/site_icons.py
 ```
 
-The second command rewrites `ui_site_table.c` (about 600 bytes of flash per icon).
+The second command rewrites `ui_site_table.c` (about 1.3 KB of flash per icon).
 
 Fonts must be enabled in `sdkconfig.defaults` (`CONFIG_LV_FONT_*`). Screens have a 48 KB LVGL heap,
 shared by the screen being left and the one being built; the simulator prints its use with every

@@ -12,7 +12,7 @@ typedef struct {
     const char *name;
     const char *const *domains;     /* NULL-terminated; subdomains match too */
     uint32_t color;                 /* brand color, 0xRRGGBB */
-    const lv_image_dsc_t *icon;     /* 24x24 alpha mask to tint, or NULL: draw badge instead */
+    const lv_image_dsc_t *icon;     /* square alpha mask to tint, or NULL: draw badge instead */
     const char *badge;              /* 1-3 characters */
 } ui_site_t;
 

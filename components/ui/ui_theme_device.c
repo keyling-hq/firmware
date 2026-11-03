@@ -144,13 +144,15 @@ static void prompt_build(ui_menu_t *m)
     int text_w = UI_W - 20;
     if (m->site) {
         const lv_font_t *font = strlen(m->site->badge) > 1 ? &lv_font_unscii_8 : &lv_font_unscii_16;
-        lv_obj_t *mark = ui_site_mark(d, m->site, FG, BG, font);
+        lv_obj_t *mark = ui_site_mark(d, m->site, 24, FG, BG, font);
         lv_obj_align(mark, LV_ALIGN_TOP_RIGHT, -4, 4);
         lv_obj_update_layout(mark);
         text_w -= lv_obj_get_width(mark) + 4;
     }
     lv_obj_set_pos(ui_label_scroll(d, &lv_font_unscii_8, FG, m->title, text_w), 5, 5);
-    lv_obj_set_pos(ui_label_scroll(d, &lv_font_unscii_16, FG, m->subtitle, text_w), 5, 17);
+    lv_obj_t *site = ui_label_scroll(d, &lv_font_unscii_16, FG, m->subtitle, text_w);
+    ui_label_scroll_careful(site);
+    lv_obj_set_pos(site, 5, 17);
     lv_obj_t *segs = ui_box(d, 6, 40, SEGMENTS * 12, 6, BG, 0);
     lv_obj_set_style_bg_opa(segs, LV_OPA_TRANSP, 0);
     for (int i = 0; i < SEGMENTS; i++) {

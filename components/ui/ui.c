@@ -24,6 +24,8 @@ static const char *TAG = "ui";
 #define SCROLL_PX_PER_S     60
 #define SCROLL_PAUSE_MS     500
 #define SCROLL_GAP          24
+#define CAREFUL_PX_PER_S    20
+#define CAREFUL_PAUSE_MS    1500
 #define BLE_CONNECTED_COLOR 0x4D9BFF
 #define STATUS_TICK_MS      33
 /* Waits for the lock: dropping these would leave a request without its prompt. */
@@ -249,24 +251,30 @@ lv_obj_t *ui_box(lv_obj_t *parent, int x, int y, int w, int h, uint32_t bg, int 
     return o;
 }
 
-#define SITE_MARK_SIZE  24
 #define MIN_CONTRAST    2.0f
 
-lv_obj_t *ui_site_mark(lv_obj_t *parent, const ui_site_t *site, uint32_t color, uint32_t ink,
+lv_obj_t *ui_site_mark(lv_obj_t *parent, const ui_site_t *site, int size, uint32_t color, uint32_t ink,
                        const lv_font_t *font)
 {
     if (site->icon) {
         lv_obj_t *img = lv_image_create(parent);
         lv_image_set_src(img, site->icon);
+        if (size != site->icon->header.w) {
+            lv_image_set_scale(img, (uint32_t)(size * LV_SCALE_NONE / site->icon->header.w));
+            lv_image_set_inner_align(img, LV_IMAGE_ALIGN_STRETCH);
+            lv_obj_set_size(img, size, size);
+        }
         lv_obj_set_style_image_recolor(img, lv_color_hex(color), 0);
         lv_obj_set_style_image_recolor_opa(img, LV_OPA_COVER, 0);
         return img;
     }
     if (!font) {
-        font = strlen(site->badge) > 1 ? &lv_font_montserrat_12 : &lv_font_montserrat_16;
+        bool big = size >= 32;
+        font = strlen(site->badge) > 1 ? (big ? &lv_font_montserrat_14 : &lv_font_montserrat_12)
+                                       : (big ? &lv_font_montserrat_20 : &lv_font_montserrat_16);
     }
-    lv_obj_t *badge = ui_box(parent, 0, 0, LV_SIZE_CONTENT, SITE_MARK_SIZE, color, LV_RADIUS_CIRCLE);
-    lv_obj_set_style_min_width(badge, SITE_MARK_SIZE, 0);
+    lv_obj_t *badge = ui_box(parent, 0, 0, LV_SIZE_CONTENT, size, color, LV_RADIUS_CIRCLE);
+    lv_obj_set_style_min_width(badge, size, 0);
     lv_obj_set_style_pad_hor(badge, 5, 0);
     lv_obj_center(ui_label(badge, font, ink, site->badge));
     return badge;
@@ -361,6 +369,27 @@ static void scroll_set(lv_obj_t *box, bool active, bool force)
                            : align == LV_TEXT_ALIGN_CENTER ? (width - size.x) / 2 : 0);
         return;
     }
+    if (lv_obj_has_flag(box, LV_OBJ_FLAG_USER_3)) {
+        lv_obj_set_x(text, 0);
+        if (!active) {
+            return;
+        }
+        int32_t overflow = size.x - width;
+        lv_anim_t a;
+        lv_anim_init(&a);
+        lv_anim_set_var(&a, text);
+        lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)lv_obj_set_x);
+        lv_anim_set_values(&a, 0, -overflow);
+        lv_anim_set_duration(&a, (uint32_t)overflow * 1000 / CAREFUL_PX_PER_S);
+        lv_anim_set_reverse_duration(&a, (uint32_t)overflow * 1000 / CAREFUL_PX_PER_S);
+        lv_anim_set_delay(&a, CAREFUL_PAUSE_MS);
+        lv_anim_set_reverse_delay(&a, CAREFUL_PAUSE_MS);
+        lv_anim_set_repeat_delay(&a, CAREFUL_PAUSE_MS);
+        lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+        lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+        lv_anim_start(&a);
+        return;
+    }
     /* Only text that overflows gets the copy that makes the loop seamless. */
     int32_t period = size.x + SCROLL_GAP;
     lv_obj_t *copy = lv_obj_get_child(box, 1);
@@ -413,6 +442,16 @@ lv_obj_t *ui_label_scroll(lv_obj_t *parent, const lv_font_t *font, uint32_t colo
 void ui_label_scroll_align(lv_obj_t *box, lv_text_align_t align)
 {
     lv_obj_set_style_text_align(box, align, 0);
+    scroll_set(box, lv_obj_has_flag(box, LV_OBJ_FLAG_USER_1), true);
+}
+
+void ui_label_scroll_careful(lv_obj_t *box)
+{
+    lv_obj_add_flag(box, LV_OBJ_FLAG_USER_3);
+    lv_obj_t *copy = lv_obj_get_child(box, 1);
+    if (copy) {
+        lv_obj_delete(copy);
+    }
     scroll_set(box, lv_obj_has_flag(box, LV_OBJ_FLAG_USER_1), true);
 }
 

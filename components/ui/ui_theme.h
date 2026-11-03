@@ -144,6 +144,11 @@ lv_obj_t *ui_label(lv_obj_t *parent, const lv_font_t *font, uint32_t color, cons
 lv_obj_t *ui_label_scroll(lv_obj_t *parent, const lv_font_t *font, uint32_t color, const char *text, int width);
 /** Where a scrolling label's text sits when it fits (left by default). */
 void ui_label_scroll_align(lv_obj_t *label, lv_text_align_t align);
+/**
+ * Text the user has to check, like a site name: instead of looping, it slides slowly to its end and
+ * back, pausing at both ends.
+ */
+void ui_label_scroll_careful(lv_obj_t *label);
 /** Makes a scrolling label as narrow as its text, up to its width (e.g. beside a symbol). */
 void ui_label_scroll_fit(lv_obj_t *label);
 /** Sets the text of a label from ui_label() or ui_label_scroll(). */
@@ -167,11 +172,11 @@ uint32_t ui_ble_color(const ui_status_t *s);
 /** The USB symbol: good while a computer has set the dongle up, dim on power alone. */
 uint32_t ui_usb_color(const ui_status_t *s);
 /**
- * A site's mark, 24 px high: its icon tinted with color, or a round badge in color with its letters
- * in ink and font (NULL: Montserrat sized to the letters), widening for longer badges.
+ * A site's mark, size px high: its icon tinted with color, or a round badge in color with its
+ * letters in ink and font (NULL: Montserrat sized to fit), widening for longer badges.
  * ui_site_color() picks a color that stands out on bg.
  */
-lv_obj_t *ui_site_mark(lv_obj_t *parent, const ui_site_t *site, uint32_t color, uint32_t ink,
+lv_obj_t *ui_site_mark(lv_obj_t *parent, const ui_site_t *site, int size, uint32_t color, uint32_t ink,
                        const lv_font_t *font);
 /** The site's brand color, or fallback where it would be too close to bg to see. */
 uint32_t ui_site_color(const ui_site_t *site, uint32_t bg, uint32_t fallback);

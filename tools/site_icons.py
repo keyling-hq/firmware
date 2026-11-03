@@ -6,7 +6,7 @@
     tools/.venv/Scripts/python tools/site_icons.py --check
 
 Downloads the listed Simple Icons (CC0-1.0) at the pinned version, renders them with resvg to
-24x24 alpha masks and writes components/ui/ui_site_table.c. Sites without an icon get a badge,
+36x36 alpha masks and writes components/ui/ui_site_table.c. Sites without an icon get a badge,
 drawn by the theme from the badge text and the color.
 
 --check lists the sites that neither 2fa.directory (security keys as a second factor) nor
@@ -25,7 +25,7 @@ import resvg_py
 ROOT = Path(__file__).resolve().parent.parent
 LIST = ROOT / "tools" / "site_icons.json"
 OUT = ROOT / "components" / "ui" / "ui_site_table.c"
-SIZE = 24
+SIZE = 36
 CDN = "https://cdn.jsdelivr.net/npm/simple-icons@{version}/{path}"
 TWO_FA_DIRECTORY = "https://api.2fa.directory/v4/all.json"
 PASSKEYS_DIRECTORY = "https://passkeys-api.2fa.directory/v1/all.json"
