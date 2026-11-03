@@ -177,8 +177,9 @@ uint32_t ui_ble_color(const ui_status_t *s);
 /** The USB symbol: good while a computer has set the dongle up, dim on power alone. */
 uint32_t ui_usb_color(const ui_status_t *s);
 /**
- * A site's mark, size px high: its icon tinted with color, or a round badge in color with its
- * letters in ink and font (NULL: Montserrat sized to fit), widening for longer badges.
+ * A site's mark: its icon (UI_SITE_ICON_SIZE square) tinted with color, or a round badge size px
+ * high in color with its letters in ink and font (NULL: Montserrat sized to fit), widening for
+ * longer badges.
  * ui_site_color() picks a color that stands out on bg.
  */
 lv_obj_t *ui_site_mark(lv_obj_t *parent, const ui_site_t *site, int size, uint32_t color, uint32_t ink,

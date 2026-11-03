@@ -144,7 +144,7 @@ static void prompt_build(ui_menu_t *m)
     int text_w = UI_W - 20;
     if (m->site) {
         const lv_font_t *font = strlen(m->site->badge) > 1 ? &lv_font_unscii_8 : &lv_font_unscii_16;
-        lv_obj_t *mark = ui_site_mark(d, m->site, 24, FG, BG, font);
+        lv_obj_t *mark = ui_site_mark(d, m->site, UI_SITE_ICON_SIZE, FG, BG, font);
         lv_obj_align(mark, LV_ALIGN_TOP_RIGHT, -4, 4);
         lv_obj_update_layout(mark);
         text_w -= lv_obj_get_width(mark) + 4;

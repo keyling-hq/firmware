@@ -206,7 +206,7 @@ tools/.venv/Scripts/python tools/site_icons.py --check
 tools/.venv/Scripts/python tools/site_icons.py
 ```
 
-The second command rewrites `ui_site_table.c` (about 1.3 KB of flash per icon).
+The second command rewrites `ui_site_table.c` (about 800 bytes of flash per icon).
 
 Fonts must be enabled in `sdkconfig.defaults` (`CONFIG_LV_FONT_*`), or converted into `fonts/` like
 `ui_font_atkinson_mono_14` (Atkinson Hyperlegible Mono, for site names: monospaced, with every

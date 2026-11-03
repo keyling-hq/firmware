@@ -261,11 +261,6 @@ lv_obj_t *ui_site_mark(lv_obj_t *parent, const ui_site_t *site, int size, uint32
     if (site->icon) {
         lv_obj_t *img = lv_image_create(parent);
         lv_image_set_src(img, site->icon);
-        if (size != site->icon->header.w) {
-            lv_image_set_scale(img, (uint32_t)(size * LV_SCALE_NONE / site->icon->header.w));
-            lv_image_set_inner_align(img, LV_IMAGE_ALIGN_STRETCH);
-            lv_obj_set_size(img, size, size);
-        }
         lv_obj_set_style_image_recolor(img, lv_color_hex(color), 0);
         lv_obj_set_style_image_recolor_opa(img, LV_OPA_COVER, 0);
         return img;

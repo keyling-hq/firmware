@@ -388,8 +388,17 @@ static void run_window(void)
                 pairing = !pairing;
                 ui_show_pairing(pairing, 482915, "KL1:34851857FE92:482915");
             }
+            /* Site names of every length and some look-alikes, one per press. */
             if (key_edge('F', &was[2])) {
-                ui_show_fido_request(UI_FIDO_SIGN_IN, "github.com");
+                static const char *const sites[] = {
+                    "github.com", "webauthn.io", "accounts.google.com", "signin.aws.amazon.com",
+                    "rnicrosoft.com", "paypa1.com", "github.com.account-security-check.io",
+                    "login.microsoftonline.com", "example.com",
+                };
+                static size_t next;
+                ui_show_fido_request(UI_FIDO_SIGN_IN, sites[next]);
+                ui_reload_theme();
+                next = (next + 1) % (sizeof(sites) / sizeof(sites[0]));
             }
             if (key_edge('X', &was[7])) {
                 ui_show_fido_done(false);

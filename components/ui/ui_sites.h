@@ -8,6 +8,9 @@
  * Known sites for the security key prompt: a recognisable icon next to the site name. The name
  * the browser sent stays the text to trust; an unknown or lookalike domain simply gets no icon.
  */
+/* Icons are drawn at their own size: scaling them at run time clips their edges. */
+#define UI_SITE_ICON_SIZE   28
+
 typedef struct {
     const char *name;
     const char *const *domains;     /* NULL-terminated; subdomains match too */
