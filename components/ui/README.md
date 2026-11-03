@@ -155,6 +155,20 @@ lower-level functions in `ui_priv.h` (the framework uses them too), still themed
 
 Such an app handles going back itself and sets `refresh` to rebuild after outside changes.
 
+## Shared design tokens
+
+Candy's palette, the app colors, Candy's radii and the status LED's colors come from
+`proto/design/tokens.json` in the protocol repository, which the hub app reads too, so both look
+like one product. Change them there, then regenerate `ui_tokens.h` and
+`components/status_led/status_led_tokens.h`:
+
+```
+tools/.venv/Scripts/python tools/gen_tokens.py
+```
+
+CI fails while the headers don't match the tokens (`--check`). A new app adds its color to the
+tokens under `color.app`, keyed by its `id`.
+
 ## Writing a theme
 
 `ui_theme_example.c` ("Quiet") is a small complete theme with its API explained at the top (enable

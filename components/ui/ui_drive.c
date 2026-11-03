@@ -1,4 +1,5 @@
 #include "ui_priv.h"
+#include "ui_tokens.h"
 #include "ui_input.h"
 #include "status_led.h"
 #include "usb_hid.h"
@@ -68,7 +69,7 @@ const ui_app_t ui_app_drive = {
     .id = "drive",
     .name = "Drive",
     .icon = LV_SYMBOL_DRIVE,
-    .color = 0x5BC0EB,
+    .color = UI_TOKEN_APP_DRIVE,
     .start = start,
     .menu = &s_menu,
     .stop = stop,

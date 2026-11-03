@@ -5,15 +5,16 @@
 #include <math.h>
 #include <stdio.h>
 #include "ui_theme.h"
+#include "ui_tokens.h"
 
-#define BG      0x15172B
-#define CARD    0x24274A
-#define INK    0xFFFFFF
-#define DIM     0x8A8FB8
-#define ACCENT  0x7C9CFF
-#define GOOD    0x7CF29A
-#define BAD     0xFF6B6B
-#define WARN    0xFFD166
+#define BG      UI_TOKEN_CANDY_BACKGROUND
+#define CARD    UI_TOKEN_CANDY_SURFACE
+#define INK     UI_TOKEN_CANDY_TEXT
+#define DIM     UI_TOKEN_CANDY_TEXT_DIM
+#define ACCENT  UI_TOKEN_CANDY_ACCENT
+#define GOOD    UI_TOKEN_CANDY_GOOD
+#define BAD     UI_TOKEN_CANDY_BAD
+#define WARN    UI_TOKEN_CANDY_WARN
 
 #define HEADER_H    14
 #define ROW_H       20
@@ -59,13 +60,13 @@ static void launcher_build(ui_launcher_t *l)
     }
     l->part[L_NAME] = ui_label(l->scr, &lv_font_montserrat_14, INK, "");
     /* As wide as its text: a locked profile adds the warning symbol. */
-    lv_obj_t *pill = ui_box(l->scr, 3, 3, LV_SIZE_CONTENT, 12, CARD, 6);
+    lv_obj_t *pill = ui_box(l->scr, 3, 3, LV_SIZE_CONTENT, 12, CARD, UI_TOKEN_RADIUS_PILL);
     lv_obj_set_style_pad_hor(pill, 7, 0);
     lv_obj_set_flex_flow(pill, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(pill, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     l->part[L_PROFILE_BOX] = pill;
     l->part[L_PROFILE] = ui_label(pill, &lv_font_montserrat_10, DIM, "");
-    lv_obj_t *icons = ui_box(l->scr, UI_W - 34, 3, 31, 12, CARD, 6);
+    lv_obj_t *icons = ui_box(l->scr, UI_W - 34, 3, 31, 12, CARD, UI_TOKEN_RADIUS_PILL);
     l->part[L_BLE] = ui_label(icons, &lv_font_montserrat_10, DIM, LV_SYMBOL_BLUETOOTH);
     lv_obj_align(l->part[L_BLE], LV_ALIGN_LEFT_MID, 6, 0);
     l->part[L_USB] = ui_label(icons, &lv_font_montserrat_10, DIM, LV_SYMBOL_USB);
@@ -86,7 +87,7 @@ static void launcher_place(ui_launcher_t *l)
         lv_obj_t *tile = l->part[i];
         lv_obj_set_pos(tile, cx - size / 2, cy - size / 2);
         lv_obj_set_size(tile, size, size);
-        lv_obj_set_style_radius(tile, size / 4, 0);
+        lv_obj_set_style_radius(tile, (int32_t)(size * UI_TOKEN_TILE_RADIUS_RATIO), 0);
         lv_obj_set_style_bg_color(tile, ui_mix(l->apps[i]->color, CARD, off * 0.6f), 0);
         lv_obj_set_style_opa(tile, (lv_opa_t)(fade * 255), 0);
         lv_obj_set_style_text_font(lv_obj_get_child(tile, 0), off < 0.5f ? &lv_font_montserrat_24 : &lv_font_montserrat_16, 0);
@@ -246,7 +247,7 @@ static void menu_place(ui_menu_t *m)
         int y = (int)lroundf(cy + d * (dialog ? ROW_H : ROW_STEP)) - ROW_H / 2;
         lv_obj_set_pos(item->obj, inset, y);
         lv_obj_set_size(item->obj, UI_W - 2 * inset, ROW_H);
-        lv_obj_set_style_radius(item->obj, 8, 0);
+        lv_obj_set_style_radius(item->obj, UI_TOKEN_RADIUS_ITEM, 0);
         lv_obj_set_style_bg_opa(item->obj, LV_OPA_COVER, 0);
         lv_obj_set_style_bg_color(item->obj, ui_mix(color, CARD, off), 0);
         lv_obj_set_style_opa(item->obj, (lv_opa_t)(fade * 255), 0);

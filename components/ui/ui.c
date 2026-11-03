@@ -4,6 +4,7 @@
 #include "ui.h"
 #include "ui_input.h"
 #include "ui_theme.h"
+#include "ui_tokens.h"
 #include "ui_nav.h"
 #include "bsp/tdongle.h"
 #include "esp_lvgl_port.h"
@@ -28,7 +29,7 @@ static const char *TAG = "ui";
 #define CAREFUL_MAX_PX_PER_S    50
 #define CAREFUL_TRAVEL_MS       3000
 #define CAREFUL_PAUSE_MS        1500
-#define BLE_CONNECTED_COLOR 0x4D9BFF
+#define BLE_CONNECTED_COLOR UI_TOKEN_BLUETOOTH_CONNECTED
 #define STATUS_TICK_MS      33
 /* Waits for the lock: dropping these would leave a request without its prompt. */
 #define PROMPT_LOCK_MS      200

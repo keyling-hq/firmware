@@ -1,4 +1,5 @@
 #include "status_led.h"
+#include "status_led_tokens.h"
 #include "bsp/tdongle.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -30,7 +31,7 @@ static rgb_t render_attention(status_led_attention_t attention, uint32_t ms)
         uint32_t phase = ms % DOUBLE_BLINK_PERIOD_MS;
         bool on = phase < DOUBLE_BLINK_ON_MS ||
                   (phase >= 2 * DOUBLE_BLINK_ON_MS && phase < 3 * DOUBLE_BLINK_ON_MS);
-        return on ? (rgb_t){ PEAK, 0, PEAK } : (rgb_t){ 0 };
+        return on ? status_led_color(STATUS_LED_TOKEN_SECURITY_KEY, PEAK) : (rgb_t){ 0 };
     }
     case STATUS_LED_ATTENTION_NONE:
     default:

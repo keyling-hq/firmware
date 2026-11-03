@@ -1,4 +1,5 @@
 #include "ui_priv.h"
+#include "ui_tokens.h"
 #include "usb_hid.h"
 
 #define JIGGLE_INTERVAL_S   2
@@ -53,7 +54,7 @@ const ui_app_t ui_app_jiggler = {
     .id = "jiggler",
     .name = "Jiggler",
     .icon = LV_SYMBOL_SHUFFLE,
-    .color = 0xFF6B6B,
+    .color = UI_TOKEN_APP_JIGGLER,
     .start = start,
     .menu = &s_menu,
     .stop = stop,

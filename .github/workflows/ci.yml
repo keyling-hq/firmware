@@ -28,6 +28,8 @@ jobs:
         run: |
           tools/.venv/bin/python tools/gen_proto.py
           git diff --exit-code -- components/protocol tools/bridge_pb2.py tools/bridge_pb2.pyi
+      - name: Generated design tokens match proto/design/tokens.json
+        run: tools/.venv/bin/python tools/gen_tokens.py --check
 
   build:
     name: Build ${{ matrix.env }}

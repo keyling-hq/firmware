@@ -59,6 +59,9 @@ typedef struct {
     uint8_t r, g, b;
 } status_led_color_t;
 
+/** A color from the design tokens (0xRRGGBB, status_led_tokens.h) at level 0..STATUS_LED_PEAK. */
+status_led_color_t status_led_color(uint32_t rgb, uint32_t level);
+
 /** The color of pattern at ms after it started; done once it stays dark. No side effects. */
 status_led_color_t status_led_render(status_led_pattern_t pattern, uint32_t ms, bool *done);
 
