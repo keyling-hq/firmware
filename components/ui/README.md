@@ -185,6 +185,22 @@ distance from the middle. Helpers in `ui_theme.h`:
 | `ui_more_hint` | the bobbing arrow for dialogs with hidden items |
 | `ui_tone_color`, `ui_tone_symbol`, `ui_usb_color` | colors and symbols by state |
 | `ui_ble_color` | the Bluetooth symbol in step with the status LED, for themes in color |
+| `ui_site_mark`, `ui_site_color`, `ui_ink_on` | a known site's icon or letter badge on security key prompts (`m->site`), in a color that shows on the background |
+
+### Site icons
+
+Security key prompts for a known site show its icon next to the site name the browser sent, which
+stays the text to trust: an unknown or lookalike domain just gets no icon. The sites, their domains
+(subdomains match too, the longest match wins) and their icons are listed in
+`tools/site_icons.json`; icons come from [Simple Icons](https://simpleicons.org) (CC0), and brands
+missing there get a letter badge in their color. After editing the list:
+
+```
+tools/.venv/Scripts/python -m pip install -r tools/requirements-icons.txt
+tools/.venv/Scripts/python tools/site_icons.py
+```
+
+It rewrites `ui_site_table.c` (about 600 bytes of flash per icon).
 
 Fonts must be enabled in `sdkconfig.defaults` (`CONFIG_LV_FONT_*`). Screens have a 48 KB LVGL heap,
 shared by the screen being left and the one being built; the simulator prints its use with every

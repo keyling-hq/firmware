@@ -249,6 +249,55 @@ lv_obj_t *ui_box(lv_obj_t *parent, int x, int y, int w, int h, uint32_t bg, int 
     return o;
 }
 
+#define SITE_MARK_SIZE  24
+#define MIN_CONTRAST    2.0f
+
+lv_obj_t *ui_site_mark(lv_obj_t *parent, const ui_site_t *site, uint32_t color, uint32_t ink,
+                       const lv_font_t *font)
+{
+    if (site->icon) {
+        lv_obj_t *img = lv_image_create(parent);
+        lv_image_set_src(img, site->icon);
+        lv_obj_set_style_image_recolor(img, lv_color_hex(color), 0);
+        lv_obj_set_style_image_recolor_opa(img, LV_OPA_COVER, 0);
+        return img;
+    }
+    if (!font) {
+        font = strlen(site->badge) > 1 ? &lv_font_montserrat_12 : &lv_font_montserrat_16;
+    }
+    lv_obj_t *badge = ui_box(parent, 0, 0, LV_SIZE_CONTENT, SITE_MARK_SIZE, color, LV_RADIUS_CIRCLE);
+    lv_obj_set_style_min_width(badge, SITE_MARK_SIZE, 0);
+    lv_obj_set_style_pad_hor(badge, 5, 0);
+    lv_obj_center(ui_label(badge, font, ink, site->badge));
+    return badge;
+}
+
+static float luminance(uint32_t rgb)
+{
+    float c[3] = { (rgb >> 16 & 0xFF) / 255.0f, (rgb >> 8 & 0xFF) / 255.0f, (rgb & 0xFF) / 255.0f };
+    for (int i = 0; i < 3; i++) {
+        c[i] = c[i] <= 0.04045f ? c[i] / 12.92f : powf((c[i] + 0.055f) / 1.055f, 2.4f);
+    }
+    return 0.2126f * c[0] + 0.7152f * c[1] + 0.0722f * c[2];
+}
+
+/* WCAG contrast ratio. */
+static float contrast(uint32_t a, uint32_t b)
+{
+    float la = luminance(a), lb = luminance(b);
+    return la > lb ? (la + 0.05f) / (lb + 0.05f) : (lb + 0.05f) / (la + 0.05f);
+}
+
+uint32_t ui_site_color(const ui_site_t *site, uint32_t bg, uint32_t fallback)
+{
+    return contrast(site->color, bg) >= MIN_CONTRAST ? site->color : fallback;
+}
+
+uint32_t ui_ink_on(uint32_t bg, uint32_t light, uint32_t dark)
+{
+    return contrast(bg, light) >= contrast(bg, dark) ? light : dark;
+}
+
 lv_obj_t *ui_label(lv_obj_t *parent, const lv_font_t *font, uint32_t color, const char *text)
 {
     lv_obj_t *l = lv_label_create(parent);
@@ -1125,6 +1174,9 @@ static void show_fido(void)
                                                                                    : NULL;
     ui_menu_t *m = menu_begin(UI_MENU_PROMPT, titles[s_fido_kind], NULL);
     snprintf(m->subtitle, sizeof(m->subtitle), "%s", subtitle ? subtitle : "");
+    if (s_fido_kind == UI_FIDO_REGISTER || s_fido_kind == UI_FIDO_SIGN_IN) {
+        m->site = ui_site_find(s_fido_rp_id);
+    }
     bool erase = s_fido_kind == UI_FIDO_PROFILE_RESET;
     m->tone = erase ? UI_TONE_BAD : UI_TONE_GOOD;
     lv_obj_t *hold = ui_hold_add(m, erase ? "Hold to erase" : "Hold to approve",

@@ -140,7 +140,12 @@ static void prompt_build(ui_menu_t *m)
     lv_obj_set_style_arc_color(arc, lv_color_hex(ui_tone_color(m->tone)), LV_PART_INDICATOR);
     lv_obj_set_style_arc_opa(arc, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_arc_opa(arc, LV_OPA_COVER, LV_PART_INDICATOR);
-    lv_obj_center(ui_label(arc, &lv_font_montserrat_20, INK, m->tone == UI_TONE_BAD ? LV_SYMBOL_TRASH : LV_SYMBOL_EYE_OPEN));
+    if (m->site) {
+        uint32_t color = ui_site_color(m->site, BG, INK);
+        lv_obj_center(ui_site_mark(arc, m->site, color, ui_ink_on(color, INK, BG), NULL));
+    } else {
+        lv_obj_center(ui_label(arc, &lv_font_montserrat_20, INK, m->tone == UI_TONE_BAD ? LV_SYMBOL_TRASH : LV_SYMBOL_EYE_OPEN));
+    }
     m->part[M_ARC] = arc;
 
     lv_obj_set_pos(ui_label_scroll(m->scr, &lv_font_montserrat_10, DIM, m->title, UI_W - 82), 78, 12);

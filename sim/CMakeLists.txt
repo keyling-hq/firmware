@@ -69,6 +69,8 @@ add_executable(keyling_ui_sim
     ${FW}/components/ui/ui_nav.c
     ${FW}/components/ui/ui_input.c
     ${FW}/components/ui/ui_settings.c
+    ${FW}/components/ui/ui_sites.c
+    ${FW}/components/ui/ui_site_table.c
     ${FW}/components/ui/ui_theme_candy.c
     ${FW}/components/ui/ui_theme_device.c
     ${FW}/components/status_led/status_led_pattern.c

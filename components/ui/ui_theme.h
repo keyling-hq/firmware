@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "lvgl.h"
 #include "ui_priv.h"
+#include "ui_sites.h"
 
 /*
  * The theme API. The shared code (ui.c) owns navigation, focus, input and the data of each
@@ -52,6 +53,7 @@ struct ui_menu {
     char message[64];
     char subtitle[64];
     char big[24];                   /* plain text; a theme may add ui_tone_symbol() */
+    const ui_site_t *site;          /* security key prompts for a known site, else NULL */
     ui_tone_t tone;
     int count;
     ui_item_t items[UI_MENU_MAX_ITEMS];
@@ -164,3 +166,14 @@ lv_obj_t *ui_ticker(lv_obj_t *parent, int x, int y, int w, int h, const lv_font_
 uint32_t ui_ble_color(const ui_status_t *s);
 /** The USB symbol: good while a computer has set the dongle up, dim on power alone. */
 uint32_t ui_usb_color(const ui_status_t *s);
+/**
+ * A site's mark, 24 px high: its icon tinted with color, or a round badge in color with its letters
+ * in ink and font (NULL: Montserrat sized to the letters), widening for longer badges.
+ * ui_site_color() picks a color that stands out on bg.
+ */
+lv_obj_t *ui_site_mark(lv_obj_t *parent, const ui_site_t *site, uint32_t color, uint32_t ink,
+                       const lv_font_t *font);
+/** The site's brand color, or fallback where it would be too close to bg to see. */
+uint32_t ui_site_color(const ui_site_t *site, uint32_t bg, uint32_t fallback);
+/** Whichever of light and dark reads better on bg. */
+uint32_t ui_ink_on(uint32_t bg, uint32_t light, uint32_t dark);
