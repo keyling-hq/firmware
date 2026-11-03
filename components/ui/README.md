@@ -179,6 +179,7 @@ distance from the middle. Helpers in `ui_theme.h`:
 |---|---|
 | `ui_box`, `ui_label` | plain objects without LVGL's default styles |
 | `ui_label_scroll` | one-line text that scrolls by the rules above; `ui_label_scroll_align`, `ui_label_scroll_fit` |
+| `ui_label_scroll_careful` | text to check, like a site name: slides to its end and back with pauses, faster for longer text (20–50 px/s), with an optional thin scroll bar |
 | `ui_label_set_text` | changes the text of either kind of label (e.g. `m->big_label` during an update) |
 | `ui_scroll_activate` | starts or stops scrolling text in a subtree (the shared code does it for items) |
 | `ui_ticker` | a text page scrolling up slowly in a loop |
@@ -207,6 +208,10 @@ tools/.venv/Scripts/python tools/site_icons.py
 
 The second command rewrites `ui_site_table.c` (about 1.3 KB of flash per icon).
 
-Fonts must be enabled in `sdkconfig.defaults` (`CONFIG_LV_FONT_*`). Screens have a 48 KB LVGL heap,
-shared by the screen being left and the one being built; the simulator prints its use with every
-screenshot.
+Fonts must be enabled in `sdkconfig.defaults` (`CONFIG_LV_FONT_*`), or converted into `fonts/` like
+`ui_font_atkinson_mono_14` (Atkinson Hyperlegible Mono, for site names: monospaced, with every
+look-alike character distinct) with LVGL's converter, the options at the top of the file:
+`npx lv_font_conv@1.5.3 --font FONT.ttf -r 0x20-0x7E --size 14 --bpp 4 --format lvgl --no-compress`.
+
+Screens have a 48 KB LVGL heap, shared by the screen being left and the one being built; the
+simulator prints its use with every screenshot.

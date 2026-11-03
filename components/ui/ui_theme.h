@@ -109,6 +109,9 @@ typedef struct {
     void (*text_build)(lv_obj_t *scr, const ui_app_t *app, const char *title, const char *text);
 } ui_theme_t;
 
+/* Monospaced and every look-alike character distinct (l/I/1, O/0): for site names. */
+LV_FONT_DECLARE(ui_font_atkinson_mono_14);
+
 /* The built-in themes, in Settings order; the first is the default. */
 extern const ui_theme_t ui_theme_candy;
 extern const ui_theme_t ui_theme_device;
@@ -145,10 +148,12 @@ lv_obj_t *ui_label_scroll(lv_obj_t *parent, const lv_font_t *font, uint32_t colo
 /** Where a scrolling label's text sits when it fits (left by default). */
 void ui_label_scroll_align(lv_obj_t *label, lv_text_align_t align);
 /**
- * Text the user has to check, like a site name: instead of looping, it slides slowly to its end and
- * back, pausing at both ends.
+ * Text the user has to check, like a site name: instead of looping, it slides to its end and back,
+ * pausing at both ends, faster for longer text up to a limit. thumb (optional) is an object inside
+ * a track the theme placed: it gets the share of the text in view as width and follows the text;
+ * the track hides while the text fits.
  */
-void ui_label_scroll_careful(lv_obj_t *label);
+void ui_label_scroll_careful(lv_obj_t *label, lv_obj_t *thumb);
 /** Makes a scrolling label as narrow as its text, up to its width (e.g. beside a symbol). */
 void ui_label_scroll_fit(lv_obj_t *label);
 /** Sets the text of a label from ui_label() or ui_label_scroll(). */

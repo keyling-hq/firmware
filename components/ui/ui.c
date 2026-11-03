@@ -24,8 +24,10 @@ static const char *TAG = "ui";
 #define SCROLL_PX_PER_S     60
 #define SCROLL_PAUSE_MS     500
 #define SCROLL_GAP          24
-#define CAREFUL_PX_PER_S    20
-#define CAREFUL_PAUSE_MS    1500
+#define CAREFUL_MIN_PX_PER_S    20
+#define CAREFUL_MAX_PX_PER_S    50
+#define CAREFUL_TRAVEL_MS       3000
+#define CAREFUL_PAUSE_MS        1500
 #define BLE_CONNECTED_COLOR 0x4D9BFF
 #define STATUS_TICK_MS      33
 /* Waits for the lock: dropping these would leave a request without its prompt. */
@@ -269,9 +271,11 @@ lv_obj_t *ui_site_mark(lv_obj_t *parent, const ui_site_t *site, int size, uint32
         return img;
     }
     if (!font) {
+        size_t len = strlen(site->badge);
         bool big = size >= 32;
-        font = strlen(site->badge) > 1 ? (big ? &lv_font_montserrat_14 : &lv_font_montserrat_12)
-                                       : (big ? &lv_font_montserrat_20 : &lv_font_montserrat_16);
+        font = len > 2   ? (big ? &lv_font_montserrat_12 : &lv_font_montserrat_10)
+               : len > 1 ? (big ? &lv_font_montserrat_14 : &lv_font_montserrat_12)
+                         : (big ? &lv_font_montserrat_20 : &lv_font_montserrat_16);
     }
     lv_obj_t *badge = ui_box(parent, 0, 0, LV_SIZE_CONTENT, size, color, LV_RADIUS_CIRCLE);
     lv_obj_set_style_min_width(badge, size, 0);
@@ -334,6 +338,57 @@ void ui_scroll_speed_set(int px_per_s)
     s_scroll_px_per_s = px_per_s > 0 ? px_per_s : SCROLL_PX_PER_S;
 }
 
+/* Careful scrolling: the text, and the thumb (its user data) in step across its track. */
+static void careful_anim_cb(void *var, int32_t x)
+{
+    lv_obj_t *text = var;
+    lv_obj_set_x(text, x);
+    lv_obj_t *thumb = lv_obj_get_user_data(text);
+    int32_t overflow = lv_obj_get_width(text) - lv_obj_get_width(lv_obj_get_parent(text));
+    if (thumb && overflow > 0) {
+        int32_t room = lv_obj_get_width(lv_obj_get_parent(thumb)) - lv_obj_get_width(thumb);
+        lv_obj_set_x(thumb, -x * room / overflow);
+    }
+}
+
+static void careful_set(lv_obj_t *box, lv_obj_t *text, int32_t text_w, int32_t width, bool active)
+{
+    lv_obj_t *thumb = lv_obj_get_user_data(text);
+    if (thumb) {
+        lv_obj_t *track = lv_obj_get_parent(thumb);
+        lv_obj_update_layout(track);
+        if (text_w <= width) {
+            lv_obj_add_flag(track, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_remove_flag(track, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_width(thumb, lv_obj_get_width(track) * width / text_w);
+        }
+    }
+    lv_obj_set_width(text, text_w);
+    lv_obj_update_layout(text);
+    careful_anim_cb(text, 0);
+    if (!active || text_w <= width) {
+        return;
+    }
+    int32_t overflow = text_w - width;
+    int32_t speed = overflow * 1000 / CAREFUL_TRAVEL_MS;
+    speed = speed < CAREFUL_MIN_PX_PER_S ? CAREFUL_MIN_PX_PER_S : speed > CAREFUL_MAX_PX_PER_S ? CAREFUL_MAX_PX_PER_S : speed;
+    uint32_t travel_ms = (uint32_t)(overflow * 1000 / speed);
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, text);
+    lv_anim_set_exec_cb(&a, careful_anim_cb);
+    lv_anim_set_values(&a, 0, -overflow);
+    lv_anim_set_duration(&a, travel_ms);
+    lv_anim_set_reverse_duration(&a, travel_ms);
+    lv_anim_set_delay(&a, CAREFUL_PAUSE_MS);
+    lv_anim_set_reverse_delay(&a, CAREFUL_PAUSE_MS);
+    lv_anim_set_repeat_delay(&a, CAREFUL_PAUSE_MS);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_start(&a);
+}
+
 /* Moves the text and, one period behind it, its copy. */
 static void scroll_anim_cb(lv_anim_t *a, int32_t v)
 {
@@ -354,6 +409,7 @@ static void scroll_set(lv_obj_t *box, bool active, bool force)
     }
     lv_anim_delete(box, NULL);
     lv_obj_t *text = lv_obj_get_child(box, 0);
+    lv_anim_delete(text, NULL);
     lv_point_t size;
     lv_text_get_size(&size, lv_label_get_text(text), lv_obj_get_style_text_font(box, 0), 0, 0, LV_COORD_MAX,
                      LV_TEXT_FLAG_NONE);
@@ -363,31 +419,14 @@ static void scroll_set(lv_obj_t *box, bool active, bool force)
         width = size.x < max ? size.x : max;
         lv_obj_set_width(box, width);
     }
+    if (lv_obj_has_flag(box, LV_OBJ_FLAG_USER_3)) {
+        careful_set(box, text, size.x, width, active);
+        return;
+    }
     if (size.x <= width) {
         lv_text_align_t align = lv_obj_get_style_text_align(box, 0);
         lv_obj_set_x(text, align == LV_TEXT_ALIGN_RIGHT ? width - size.x
                            : align == LV_TEXT_ALIGN_CENTER ? (width - size.x) / 2 : 0);
-        return;
-    }
-    if (lv_obj_has_flag(box, LV_OBJ_FLAG_USER_3)) {
-        lv_obj_set_x(text, 0);
-        if (!active) {
-            return;
-        }
-        int32_t overflow = size.x - width;
-        lv_anim_t a;
-        lv_anim_init(&a);
-        lv_anim_set_var(&a, text);
-        lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)lv_obj_set_x);
-        lv_anim_set_values(&a, 0, -overflow);
-        lv_anim_set_duration(&a, (uint32_t)overflow * 1000 / CAREFUL_PX_PER_S);
-        lv_anim_set_reverse_duration(&a, (uint32_t)overflow * 1000 / CAREFUL_PX_PER_S);
-        lv_anim_set_delay(&a, CAREFUL_PAUSE_MS);
-        lv_anim_set_reverse_delay(&a, CAREFUL_PAUSE_MS);
-        lv_anim_set_repeat_delay(&a, CAREFUL_PAUSE_MS);
-        lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
-        lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
-        lv_anim_start(&a);
         return;
     }
     /* Only text that overflows gets the copy that makes the loop seamless. */
@@ -445,9 +484,10 @@ void ui_label_scroll_align(lv_obj_t *box, lv_text_align_t align)
     scroll_set(box, lv_obj_has_flag(box, LV_OBJ_FLAG_USER_1), true);
 }
 
-void ui_label_scroll_careful(lv_obj_t *box)
+void ui_label_scroll_careful(lv_obj_t *box, lv_obj_t *thumb)
 {
     lv_obj_add_flag(box, LV_OBJ_FLAG_USER_3);
+    lv_obj_set_user_data(lv_obj_get_child(box, 0), thumb);
     lv_obj_t *copy = lv_obj_get_child(box, 1);
     if (copy) {
         lv_obj_delete(copy);

@@ -151,8 +151,9 @@ static void prompt_build(ui_menu_t *m)
     }
     lv_obj_set_pos(ui_label_scroll(d, &lv_font_unscii_8, FG, m->title, text_w), 5, 5);
     lv_obj_t *site = ui_label_scroll(d, &lv_font_unscii_16, FG, m->subtitle, text_w);
-    ui_label_scroll_careful(site);
     lv_obj_set_pos(site, 5, 17);
+    lv_obj_t *track = ui_box(d, 5, 36, text_w, 2, lv_color_to_u32(ui_mix(BG, FG, 0.3f)) & 0xFFFFFF, 0);
+    ui_label_scroll_careful(site, ui_box(track, 0, 0, text_w, 2, FG, 0));
     lv_obj_t *segs = ui_box(d, 6, 40, SEGMENTS * 12, 6, BG, 0);
     lv_obj_set_style_bg_opa(segs, LV_OPA_TRANSP, 0);
     for (int i = 0; i < SEGMENTS; i++) {
