@@ -56,7 +56,11 @@ static void status_update(ui_launcher_t *l)
     lv_label_set_text(l->part[L_PROFILE], profile);
     lv_obj_set_style_text_color(l->part[L_PROFILE], lv_color_hex(l->status.locked ? WARN : DIM), 0);
     lv_obj_set_style_text_color(l->part[L_BLE], lv_color_hex(ui_ble_color(&l->status)), 0);
-    lv_obj_set_style_text_color(l->part[L_USB], lv_color_hex(ui_usb_color(&l->status)), 0);
+    if (l->status.usb) {
+        lv_obj_add_flag(l->part[L_USB], LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_remove_flag(l->part[L_USB], LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 static void launcher_build(ui_launcher_t *l)
@@ -74,11 +78,15 @@ static void launcher_build(ui_launcher_t *l)
     lv_obj_set_flex_align(pill, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     l->part[L_PROFILE_BOX] = pill;
     l->part[L_PROFILE] = ui_label(pill, &lv_font_montserrat_10, DIM, "");
-    lv_obj_t *icons = ui_box(l->scr, UI_W - 34, 3, 31, 12, CARD, UI_TOKEN_RADIUS_PILL);
+    /* As wide as the symbols shown: USB only while no computer has the dongle set up. */
+    lv_obj_t *icons = ui_box(l->scr, 0, 3, LV_SIZE_CONTENT, 12, CARD, UI_TOKEN_RADIUS_PILL);
+    lv_obj_set_style_pad_hor(icons, 6, 0);
+    lv_obj_set_style_pad_column(icons, 5, 0);
+    lv_obj_set_flex_flow(icons, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(icons, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_align(icons, LV_ALIGN_TOP_RIGHT, -3, 3);
     l->part[L_BLE] = ui_label(icons, &lv_font_montserrat_10, DIM, LV_SYMBOL_BLUETOOTH);
-    lv_obj_align(l->part[L_BLE], LV_ALIGN_LEFT_MID, 6, 0);
-    l->part[L_USB] = ui_label(icons, &lv_font_montserrat_10, DIM, LV_SYMBOL_USB);
-    lv_obj_align(l->part[L_USB], LV_ALIGN_RIGHT_MID, -5, 0);
+    l->part[L_USB] = ui_usb_off_symbol(icons, DIM, CARD);
     status_update(l);
 }
 

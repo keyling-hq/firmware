@@ -200,7 +200,8 @@ distance from the middle. Helpers in `ui_theme.h`:
 | `ui_scroll_activate` | starts or stops scrolling text in a subtree (the shared code does it for items) |
 | `ui_ticker` | a text page scrolling up slowly in a loop |
 | `ui_more_hint` | the bobbing arrow for dialogs with hidden items |
-| `ui_tone_color`, `ui_tone_symbol`, `ui_usb_color` | colors and symbols by state |
+| `ui_tone_color`, `ui_tone_symbol` | colors and symbols by state |
+| `ui_usb_off_symbol` | the crossed USB symbol, shown only while no computer has set the dongle up |
 | `ui_ble_color` | the Bluetooth symbol in step with the status LED, for themes in color |
 | `ui_site_mark`, `ui_site_color`, `ui_ink_on` | a known site's icon or letter badge on security key prompts (`m->site`), in a color that shows on the background |
 

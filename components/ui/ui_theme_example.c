@@ -35,7 +35,12 @@ static void status_update(ui_launcher_t *l)
 {
     lv_label_set_text(l->part[L_STATUS], l->status.profile);
     lv_obj_set_style_text_color(l->part[L_BLE], lv_color_hex(ui_ble_color(&l->status)), 0);
-    lv_obj_set_style_text_color(l->part[L_USB], lv_color_hex(ui_usb_color(&l->status)), 0);
+    if (l->status.usb) {
+        lv_obj_add_flag(l->part[L_USB], LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_remove_flag(l->part[L_USB], LV_OBJ_FLAG_HIDDEN);
+    }
+    lv_obj_align(l->part[L_BLE], LV_ALIGN_TOP_RIGHT, l->status.usb ? -6 : -22, 4);
 }
 
 static void launcher_build(ui_launcher_t *l)
@@ -43,8 +48,7 @@ static void launcher_build(ui_launcher_t *l)
     l->part[L_STATUS] = ui_label(l->scr, &lv_font_montserrat_10, DIM, "");
     lv_obj_set_pos(l->part[L_STATUS], 6, 4);
     l->part[L_BLE] = ui_label(l->scr, &lv_font_montserrat_10, DIM, LV_SYMBOL_BLUETOOTH);
-    lv_obj_align(l->part[L_BLE], LV_ALIGN_TOP_RIGHT, -22, 4);
-    l->part[L_USB] = ui_label(l->scr, &lv_font_montserrat_10, DIM, LV_SYMBOL_USB);
+    l->part[L_USB] = ui_usb_off_symbol(l->scr, DIM, BG);
     lv_obj_align(l->part[L_USB], LV_ALIGN_TOP_RIGHT, -6, 4);
     l->part[L_ICON] = ui_label(l->scr, &lv_font_montserrat_24, INK, "");
     l->part[L_NAME] = ui_label(l->scr, &lv_font_montserrat_20, INK, "");
