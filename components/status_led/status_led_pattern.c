@@ -1,4 +1,5 @@
 #include "status_led.h"
+#include "status_led_tokens.h"
 
 #define PULSE_PERIOD_MS     3000
 #define BLINK_HALF_MS       125
@@ -16,6 +17,12 @@
 
 #define PEAK STATUS_LED_PEAK
 
+status_led_color_t status_led_color(uint32_t rgb, uint32_t level)
+{
+    return (status_led_color_t){ (uint8_t)((rgb >> 16 & 0xFF) * level / 255), (uint8_t)((rgb >> 8 & 0xFF) * level / 255),
+                                 (uint8_t)((rgb & 0xFF) * level / 255) };
+}
+
 status_led_color_t status_led_render(status_led_pattern_t pattern, uint32_t ms, bool *done)
 {
     *done = false;
@@ -24,13 +31,13 @@ status_led_color_t status_led_render(status_led_pattern_t pattern, uint32_t ms, 
         uint32_t phase = ms % PULSE_PERIOD_MS;
         uint32_t half = PULSE_PERIOD_MS / 2;
         uint32_t level = phase < half ? phase * PEAK / half : (PULSE_PERIOD_MS - phase) * PEAK / half;
-        return (status_led_color_t){ 0, 0, (uint8_t)level };
+        return status_led_color(STATUS_LED_TOKEN_ADVERTISING, level);
     }
     case STATUS_LED_PAIRING:
-        return (ms / BLINK_HALF_MS) % 2 ? (status_led_color_t){ 0 } : (status_led_color_t){ PEAK, PEAK / 2, 0 };
+        return (ms / BLINK_HALF_MS) % 2 ? (status_led_color_t){ 0 } : status_led_color(STATUS_LED_TOKEN_PAIRING, PEAK);
     case STATUS_LED_CONNECTED: {
         if (ms < CONNECTED_HOLD_MS) {
-            return (status_led_color_t){ 0, PEAK, 0 };
+            return status_led_color(STATUS_LED_TOKEN_CONNECTED, PEAK);
         }
         uint32_t t = ms - CONNECTED_HOLD_MS;
         if (t >= FADE_MS) {
@@ -39,14 +46,14 @@ status_led_color_t status_led_render(status_led_pattern_t pattern, uint32_t ms, 
         }
         /* Squared ramp: PWM brightness is perceived roughly as its square root, so this looks linear. */
         uint32_t left = FADE_MS - t;
-        return (status_led_color_t){ 0, (uint8_t)(PEAK * left * left / (FADE_MS * FADE_MS)), 0 };
+        return status_led_color(STATUS_LED_TOKEN_CONNECTED, PEAK * left * left / (FADE_MS * FADE_MS));
     }
     case STATUS_LED_ERROR:
         if (ms >= ERROR_BLINKS * 2 * ERROR_HALF_MS) {
             *done = true;
             return (status_led_color_t){ 0 };
         }
-        return (ms / ERROR_HALF_MS) % 2 ? (status_led_color_t){ 0 } : (status_led_color_t){ PEAK, 0, 0 };
+        return (ms / ERROR_HALF_MS) % 2 ? (status_led_color_t){ 0 } : status_led_color(STATUS_LED_TOKEN_ERROR, PEAK);
     case STATUS_LED_OFF:
     default:
         *done = true;
@@ -62,10 +69,10 @@ static uint8_t lerp(uint8_t a, uint8_t b, uint32_t t, uint32_t span)
 /* Teal through blue to violet at full brightness, then the violet fades on the squared ramp. */
 static status_led_color_t sweep(uint32_t t)
 {
-    static const status_led_color_t stops[] = {
-        { 0, PEAK * 7 / 8, PEAK * 3 / 4 },
-        { 0, PEAK / 4, PEAK },
-        { PEAK * 5 / 8, 0, PEAK },
+    const status_led_color_t stops[] = {
+        status_led_color(STATUS_LED_TOKEN_EJECT_START, PEAK),
+        status_led_color(STATUS_LED_TOKEN_EJECT_MIDDLE, PEAK),
+        status_led_color(STATUS_LED_TOKEN_EJECT_END, PEAK),
     };
     uint32_t half = SWEEP_TURN_MS / 2;
     uint32_t turn = t < SWEEP_TURN_MS ? t : SWEEP_TURN_MS;

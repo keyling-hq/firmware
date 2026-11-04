@@ -232,6 +232,5 @@ const ui_app_t ui_app_settings = {
     .id = "settings",
     .name = "Settings",
     .icon = LV_SYMBOL_SETTINGS,
-    .color = 0xFFD166,
     .menu = &s_settings_menu,
 };

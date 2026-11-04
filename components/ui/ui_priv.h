@@ -26,7 +26,6 @@ typedef struct {
     const char *id;             /* stable, reported to the phone */
     const char *name;
     const char *icon;           /* LV_SYMBOL_* */
-    uint32_t color;             /* 0xRRGGBB, used by themes that color apps */
     void (*start)(void);        /* optional: the app became current */
     const ui_menu_def_t *menu;  /* the app's root menu (ui_options.h); or, for custom screens: */
     ui_screen_fn_t show;        /* builds the app's root screen; also used after overlays */

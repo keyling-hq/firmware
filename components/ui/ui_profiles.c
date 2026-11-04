@@ -115,6 +115,5 @@ const ui_app_t ui_app_profiles = {
     .id = "profiles",
     .name = "Profiles",
     .icon = LV_SYMBOL_LIST,
-    .color = 0x4ECDC4,
     .menu = &s_profiles_menu,
 };

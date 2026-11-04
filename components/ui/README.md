@@ -89,8 +89,9 @@ simulator builds the same apps as `sdkconfig.hid`.
 comment on each (enable `CONFIG_UI_APP_EXAMPLE`, or `-DSIM_EXAMPLES=ON` in the simulator). To add
 an app:
 
-1. Copy it, and give the `ui_app_t` its own `id` (stable, reported to the phone), `name`, `icon`
-   (an `LV_SYMBOL_*`) and `color` (used by themes that color apps).
+1. Copy it, and give the `ui_app_t` its own `id` (stable, reported to the phone), `name` and
+   `icon` (an `LV_SYMBOL_*`). Apps have no color of their own: themes that color apps give them
+   one by launcher order (`ui_app_slot()`).
 2. Add a Kconfig option for it (`Kconfig`, under "Apps"), the file to `CMakeLists.txt` under that
    option, and the app to `s_apps` in `ui.c` (launcher order) and `ui_priv.h`. In the simulator,
    add it to `ui_optional` in `sim/CMakeLists.txt`.
@@ -154,6 +155,21 @@ lower-level functions in `ui_priv.h` (the framework uses them too), still themed
 | `ui_navigate(fn)` | switches to another screen after the current event |
 
 Such an app handles going back itself and sets `refresh` to rebuild after outside changes.
+
+## Shared design tokens
+
+Candy's palette, app colors and radii, and the status LED's colors come from the `design`
+submodule ([keyling-hq/design](https://github.com/keyling-hq/design)), which the hub app uses too,
+so both look like one product. Change them there, then regenerate `ui_tokens.h` and
+`components/status_led/status_led_tokens.h`:
+
+```
+tools/.venv/Scripts/python tools/gen_tokens.py
+```
+
+CI fails while the headers don't match the tokens (`--check`). Settings has its own color; the
+other apps take Candy's app colors in launcher order, starting over after the last, so new apps
+need no tokens of their own.
 
 ## Writing a theme
 

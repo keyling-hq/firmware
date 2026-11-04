@@ -11,8 +11,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - name: Protocol submodule
-        run: git submodule update --init --depth 1 proto
+      - name: Protocol and design submodules
+        run: git submodule update --init --depth 1 proto design
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
@@ -28,6 +28,8 @@ jobs:
         run: |
           tools/.venv/bin/python tools/gen_proto.py
           git diff --exit-code -- components/protocol tools/bridge_pb2.py tools/bridge_pb2.pyi
+      - name: Generated design tokens match design/tokens
+        run: tools/.venv/bin/python tools/gen_tokens.py --check
 
   build:
     name: Build ${{ matrix.env }}

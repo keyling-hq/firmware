@@ -189,7 +189,6 @@ const ui_app_t ui_app_example = {
     .id = "template",
     .name = "Template",
     .icon = LV_SYMBOL_FILE,
-    .color = 0xB28DFF,
     .start = start,
     .menu = &s_main_menu,
 };

@@ -174,6 +174,11 @@ lv_obj_t *ui_ticker(lv_obj_t *parent, int x, int y, int w, int h, const lv_font_
  * it changes. Monochrome themes show status.ble their own way instead.
  */
 uint32_t ui_ble_color(const ui_status_t *s);
+/**
+ * An app's place among the launcher's apps with Settings left out, -1 for Settings: themes that
+ * color apps give the others palette colors in this order.
+ */
+int ui_app_slot(const ui_app_t *app);
 /** The USB symbol: good while a computer has set the dongle up, dim on power alone. */
 uint32_t ui_usb_color(const ui_status_t *s);
 /**

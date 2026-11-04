@@ -6,8 +6,9 @@
  * and the theme to s_themes in ui.c. Built only with CONFIG_UI_THEME_EXAMPLE.
  *
  * What the shared code provides and calls:
- * - launcher_build/launcher_place: l->apps[i] (name, icon, color), l->status, l->pos. pos moves
- *   smoothly between app indexes; ui_wrap() turns it into each app's distance from the middle.
+ * - launcher_build/launcher_place: l->apps[i] (name, icon; ui_app_slot() to color them), l->status,
+ *   l->pos. pos moves smoothly between app indexes; ui_wrap() turns it into each app's distance
+ *   from the middle.
  * - menu_build/menu_place: m->kind, title, message, subtitle, big, tone, site (a known site on
  *   security key prompts, see ui_site_mark()), items (text, value, marked, hold). Each item's obj is focusable and empty: draw inside it, then position it in
  *   menu_place from ui_menu_offset(), which is the item's distance from the focused position.

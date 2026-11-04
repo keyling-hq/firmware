@@ -68,7 +68,6 @@ const ui_app_t ui_app_drive = {
     .id = "drive",
     .name = "Drive",
     .icon = LV_SYMBOL_DRIVE,
-    .color = 0x5BC0EB,
     .start = start,
     .menu = &s_menu,
     .stop = stop,

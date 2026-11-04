@@ -53,7 +53,6 @@ const ui_app_t ui_app_jiggler = {
     .id = "jiggler",
     .name = "Jiggler",
     .icon = LV_SYMBOL_SHUFFLE,
-    .color = 0xFF6B6B,
     .start = start,
     .menu = &s_menu,
     .stop = stop,
