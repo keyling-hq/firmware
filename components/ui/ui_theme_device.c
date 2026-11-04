@@ -40,6 +40,17 @@ static void frame(lv_obj_t *o, int width)
     lv_obj_set_style_border_width(o, width, 0);
 }
 
+/* The crossed USB symbol only without a computer; Bluetooth takes the corner when it's gone. */
+static void status_symbols(lv_obj_t *ble, lv_obj_t *usb, bool usb_mounted)
+{
+    if (usb_mounted) {
+        lv_obj_add_flag(usb, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_remove_flag(usb, LV_OBJ_FLAG_HIDDEN);
+    }
+    lv_obj_align(ble, LV_ALIGN_RIGHT_MID, usb_mounted ? -3 : -18, 0);
+}
+
 /* The black bar at the top: a title on the left, connection symbols on the right. */
 static void status_bar(lv_obj_t *scr, const char *title, lv_obj_t **ble, lv_obj_t **usb)
 {
@@ -48,13 +59,13 @@ static void status_bar(lv_obj_t *scr, const char *title, lv_obj_t **ble, lv_obj_
     upper(text, sizeof(text), title);
     lv_obj_align(ui_label_scroll(bar, &lv_font_unscii_8, BG, text, UI_W - 40), LV_ALIGN_LEFT_MID, 3, 0);
     lv_obj_t *b = ui_label(bar, &lv_font_montserrat_10, BG, LV_SYMBOL_BLUETOOTH);
-    lv_obj_align(b, LV_ALIGN_RIGHT_MID, -16, 0);
-    lv_obj_t *u = ui_label(bar, &lv_font_montserrat_10, BG, LV_SYMBOL_USB);
+    lv_obj_t *u = ui_usb_off_symbol(bar, BG, FG);
     lv_obj_align(u, LV_ALIGN_RIGHT_MID, -3, 0);
     if (ble) {
         *ble = b;
         *usb = u;
     }
+    status_symbols(b, u, ui_usb_mounted());
 }
 
 /* ---- launcher ---------------------------------------------------------------------------- */
@@ -67,7 +78,7 @@ static void status_update(ui_launcher_t *l)
     upper(title, sizeof(title), title);
     lv_label_set_text(l->part[L_TITLE], title);
     lv_obj_set_style_opa(l->part[L_BLE], l->status.ble == UI_BLE_CONNECTED ? LV_OPA_COVER : LV_OPA_30, 0);
-    lv_obj_set_style_opa(l->part[L_USB], l->status.usb ? LV_OPA_COVER : LV_OPA_30, 0);
+    status_symbols(l->part[L_BLE], l->part[L_USB], l->status.usb);
 }
 
 static void launcher_build(ui_launcher_t *l)
@@ -88,8 +99,7 @@ static void launcher_build(ui_launcher_t *l)
     l->part[L_TITLE] = ui_label(bar, &lv_font_unscii_8, BG, "");
     lv_obj_align(l->part[L_TITLE], LV_ALIGN_LEFT_MID, 3, 0);
     l->part[L_BLE] = ui_label(bar, &lv_font_montserrat_10, BG, LV_SYMBOL_BLUETOOTH);
-    lv_obj_align(l->part[L_BLE], LV_ALIGN_RIGHT_MID, -16, 0);
-    l->part[L_USB] = ui_label(bar, &lv_font_montserrat_10, BG, LV_SYMBOL_USB);
+    l->part[L_USB] = ui_usb_off_symbol(bar, BG, FG);
     lv_obj_align(l->part[L_USB], LV_ALIGN_RIGHT_MID, -3, 0);
     status_update(l);
 }

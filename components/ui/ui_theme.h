@@ -179,8 +179,12 @@ uint32_t ui_ble_color(const ui_status_t *s);
  * color apps give the others palette colors in this order.
  */
 int ui_app_slot(const ui_app_t *app);
-/** The USB symbol: good while a computer has set the dongle up, dim on power alone. */
-uint32_t ui_usb_color(const ui_status_t *s);
+/**
+ * The USB symbol crossed out, in color, with a gap in bg around the stroke: no computer has set
+ * the dongle up. Themes show it only then (hidden while status.usb), so a dongle working normally
+ * shows no USB symbol at all.
+ */
+lv_obj_t *ui_usb_off_symbol(lv_obj_t *parent, uint32_t color, uint32_t bg);
 /**
  * A site's mark: its icon (UI_SITE_ICON_SIZE square) tinted with color, or a round badge size px
  * high in color with its letters in ink and font (NULL: Montserrat sized to fit), widening for

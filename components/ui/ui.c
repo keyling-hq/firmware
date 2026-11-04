@@ -251,9 +251,30 @@ uint32_t ui_ble_color(const ui_status_t *s)
     return lv_color_to_u32(ui_mix(s_theme->pal.dim, full, (float)peak / STATUS_LED_PEAK)) & 0xFFFFFF;
 }
 
-uint32_t ui_usb_color(const ui_status_t *s)
+#define USB_STROKE_DEG10    (-400)
+
+/* A thin bar turned across the symbol's center; the gap is a wider one in the background color. */
+static void usb_stroke(lv_obj_t *parent, int w, int h, int thickness, uint32_t color)
 {
-    return s->usb ? s_theme->pal.good : s_theme->pal.dim;
+    lv_obj_t *s = ui_box(parent, 0, 0, w, thickness, color, 0);
+    lv_obj_align(s, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_transform_pivot_x(s, w / 2, 0);
+    lv_obj_set_style_transform_pivot_y(s, thickness / 2, 0);
+    lv_obj_set_style_transform_rotation(s, USB_STROKE_DEG10, 0);
+}
+
+lv_obj_t *ui_usb_off_symbol(lv_obj_t *parent, uint32_t color, uint32_t bg)
+{
+    lv_obj_t *box = lv_obj_create(parent);
+    lv_obj_remove_style_all(box);
+    lv_obj_remove_flag(box, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(box, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_t *symbol = ui_label(box, &lv_font_montserrat_10, color, LV_SYMBOL_USB);
+    lv_obj_update_layout(symbol);
+    int w = lv_obj_get_width(symbol), h = lv_obj_get_height(symbol);
+    usb_stroke(box, w + 2, h, 3, bg);
+    usb_stroke(box, w + 2, h, 1, color);
+    return box;
 }
 
 lv_obj_t *ui_box(lv_obj_t *parent, int x, int y, int w, int h, uint32_t bg, int radius)
