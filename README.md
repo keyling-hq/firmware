@@ -20,6 +20,8 @@ Runs on the LilyGo T-Dongle-S3 (ESP32-S3).
 - Protocol: `proto/` is the [keyling-hq/protocol](https://github.com/keyling-hq/protocol)
   submodule; after updating it, regenerate with `tools/gen_proto.py`. Reference client in
   `tools/client.py`.
+- Design: `design/` is the [keyling-hq/design](https://github.com/keyling-hq/design) submodule
+  (shared colors and sizes); after updating it, regenerate with `tools/gen_tokens.py`.
 - Checks (also run by CI): `tools/.venv/Scripts/ruff check .` and `tools/.venv/Scripts/pyright`, with
   `tools/requirements-dev.txt` installed in the venv.
 - CI checks and builds (`hid` and `release`) every push and pull request. Pushing a tag `vX.Y.Z`

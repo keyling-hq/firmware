@@ -22,6 +22,14 @@
 #define SITE_MARK   UI_SITE_ICON_SIZE
 #define RING        48
 
+/* Settings has its own color; the other apps take the palette's in launcher order. */
+static uint32_t app_color(const ui_app_t *app)
+{
+    static const uint32_t palette[] = UI_TOKEN_CANDY_APP_COLORS;
+    int slot = ui_app_slot(app);
+    return slot < 0 ? UI_TOKEN_CANDY_SETTINGS : palette[slot % (sizeof(palette) / sizeof(palette[0]))];
+}
+
 /* Launcher parts after the tiles. */
 enum { L_NAME = 8, L_PROFILE_BOX, L_PROFILE, L_BLE, L_USB };
 /* Item parts. */
@@ -36,7 +44,7 @@ static float clampf(float x, float lo, float hi)
 
 static uint32_t menu_color(const ui_menu_t *m)
 {
-    return m->app ? m->app->color : ACCENT;
+    return m->app ? app_color(m->app) : ACCENT;
 }
 
 /* ---- launcher ---------------------------------------------------------------------------- */
@@ -54,7 +62,7 @@ static void status_update(ui_launcher_t *l)
 static void launcher_build(ui_launcher_t *l)
 {
     for (int i = 0; i < l->count && i < L_NAME; i++) {
-        lv_obj_t *tile = ui_box(l->scr, 0, 0, 1, 1, l->apps[i]->color, 0);
+        lv_obj_t *tile = ui_box(l->scr, 0, 0, 1, 1, app_color(l->apps[i]), 0);
         lv_obj_center(ui_label(tile, &lv_font_montserrat_24, BG, l->apps[i]->icon));
         l->part[i] = tile;
     }
@@ -88,7 +96,7 @@ static void launcher_place(ui_launcher_t *l)
         lv_obj_set_pos(tile, cx - size / 2, cy - size / 2);
         lv_obj_set_size(tile, size, size);
         lv_obj_set_style_radius(tile, (int32_t)(size * UI_TOKEN_TILE_RADIUS_RATIO), 0);
-        lv_obj_set_style_bg_color(tile, ui_mix(l->apps[i]->color, CARD, off * 0.6f), 0);
+        lv_obj_set_style_bg_color(tile, ui_mix(app_color(l->apps[i]), CARD, off * 0.6f), 0);
         lv_obj_set_style_opa(tile, (lv_opa_t)(fade * 255), 0);
         lv_obj_set_style_text_font(lv_obj_get_child(tile, 0), off < 0.5f ? &lv_font_montserrat_24 : &lv_font_montserrat_16, 0);
     }
@@ -271,7 +279,7 @@ static void hold_progress(ui_menu_t *m, ui_item_t *item, int percent)
 static void text_build(lv_obj_t *scr, const ui_app_t *app, const char *title, const char *text)
 {
     ui_ticker(scr, 8, HEADER_H + 2, UI_W - 16, UI_H - HEADER_H - 2, &lv_font_montserrat_12, INK, text);
-    lv_obj_t *h = ui_box(scr, 0, 0, UI_W, HEADER_H, app ? app->color : ACCENT, 0);
+    lv_obj_t *h = ui_box(scr, 0, 0, UI_W, HEADER_H, app ? app_color(app) : ACCENT, 0);
     lv_obj_align(ui_label(h, &lv_font_montserrat_12, BG, title), LV_ALIGN_LEFT_MID, 5, 0);
 }
 

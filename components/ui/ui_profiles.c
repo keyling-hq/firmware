@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include "ui_priv.h"
-#include "ui_tokens.h"
 
 static ui_profile_t other_profile(ui_profile_t profile)
 {
@@ -116,6 +115,5 @@ const ui_app_t ui_app_profiles = {
     .id = "profiles",
     .name = "Profiles",
     .icon = LV_SYMBOL_LIST,
-    .color = UI_TOKEN_APP_PROFILES,
     .menu = &s_profiles_menu,
 };

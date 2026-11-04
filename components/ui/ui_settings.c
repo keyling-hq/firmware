@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <string.h>
 #include "ui_priv.h"
-#include "ui_tokens.h"
 #include "fw_info.h"
 #include "keymap.h"
 #include "keystore.h"
@@ -233,6 +232,5 @@ const ui_app_t ui_app_settings = {
     .id = "settings",
     .name = "Settings",
     .icon = LV_SYMBOL_SETTINGS,
-    .color = UI_TOKEN_APP_SETTINGS,
     .menu = &s_settings_menu,
 };

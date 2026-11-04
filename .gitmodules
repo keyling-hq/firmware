@@ -4,3 +4,6 @@
 [submodule "components/canokey/canokey-core"]
 	path = components/canokey/canokey-core
 	url = https://github.com/canokeys/canokey-core.git
+[submodule "design"]
+	path = design
+	url = https://github.com/keyling-hq/design.git
