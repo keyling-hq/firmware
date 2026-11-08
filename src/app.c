@@ -189,6 +189,7 @@ static void drive_read(uint32_t lba, uint8_t *block, void *ctx)
 static void show_drive(bool show)
 {
     static usb_hid_disk_t disk = { .read = drive_read };
+    status_led_drive(show);
     if (show) {
         int len = snprintf(s_drive_info, sizeof(s_drive_info), "Keyling\r\nFirmware: %s\r\n", fw_info_version());
         const vdisk_file_t files[] = {

@@ -169,9 +169,9 @@ void sim_led_for_ble(ui_ble_state_t state)
     }
 }
 
-void status_led_event(status_led_event_t event)
+void status_led_drive(bool in_use)
 {
-    printf("led event %d\n", event);
+    printf("led drive %d\n", in_use);
 }
 
 void status_led_base(status_led_pattern_t *pattern, uint32_t *elapsed_ms)

@@ -17,7 +17,7 @@ typedef status_led_color_t rgb_t;
 static TaskHandle_t s_task;
 static volatile status_led_pattern_t s_pattern;
 static volatile status_led_attention_t s_attention;
-static volatile status_led_event_t s_event;
+static volatile bool s_drive;
 static volatile status_led_level_t s_level;
 /* The base pattern being shown and when it started, for status_led_base(). */
 static volatile status_led_pattern_t s_shown_pattern;
@@ -41,7 +41,7 @@ static rgb_t render_attention(status_led_attention_t attention, uint32_t ms)
 
 #define CHANGED_BASE        BIT0
 #define CHANGED_ATTENTION   BIT1
-#define CHANGED_EVENT       BIT2
+#define CHANGED_DRIVE       BIT2
 #define CHANGED_LEVEL       BIT3
 
 static bool base_shown(status_led_pattern_t pattern, status_led_level_t level)
@@ -58,9 +58,8 @@ static void led_task(void *arg)
     status_led_attention_t attention = STATUS_LED_ATTENTION_NONE;
     TickType_t base_start = xTaskGetTickCount();
     TickType_t attention_start = base_start;
-    status_led_event_t event = STATUS_LED_EVENT_DRIVE_EJECTED;
-    bool event_on = false;
-    TickType_t event_start = base_start;
+    bool drive = false;
+    TickType_t drive_start = base_start;
     status_led_level_t level = s_level;
     rgb_t shown = { 0 };
     bool idle = true;
@@ -79,10 +78,9 @@ static void led_task(void *arg)
             attention = s_attention;
             attention_start = now;
         }
-        if (changed & CHANGED_EVENT) {
-            event = s_event;
-            event_on = true;
-            event_start = now;
+        if (changed & CHANGED_DRIVE) {
+            drive = s_drive;
+            drive_start = now;
         }
         if (changed & CHANGED_LEVEL) {
             level = s_level;
@@ -93,14 +91,9 @@ static void led_task(void *arg)
         if (!base_shown(pattern, level)) {
             c = (rgb_t){ 0 };
         }
-        if (event_on) {
-            bool event_done;
-            rgb_t e = status_led_render_event(event, pdTICKS_TO_MS(now - event_start), &event_done);
-            event_on = !event_done;
-            if (level == STATUS_LED_LEVEL_ALL && !event_done) {
-                c = e;
-            }
-            done = done && event_done;
+        if (drive && level != STATUS_LED_LEVEL_OFF) {
+            c = status_led_render_drive(pdTICKS_TO_MS(now - drive_start));
+            done = false;
         }
         if (attention != STATUS_LED_ATTENTION_NONE && level != STATUS_LED_LEVEL_OFF) {
             c = render_attention(attention, pdTICKS_TO_MS(now - attention_start));
@@ -137,11 +130,11 @@ void status_led_attention(status_led_attention_t attention)
     }
 }
 
-void status_led_event(status_led_event_t event)
+void status_led_drive(bool in_use)
 {
-    s_event = event;
+    s_drive = in_use;
     if (s_task) {
-        xTaskNotify(s_task, CHANGED_EVENT, eSetBits);
+        xTaskNotify(s_task, CHANGED_DRIVE, eSetBits);
     }
 }
 

@@ -8,12 +8,9 @@
 #define ERROR_BLINKS        3
 #define ERROR_HALF_MS       200
 
-#define SWEEP_MS            900
-#define SWEEP_GAP_MS        150
-#define SWEEPS              2
-#define SWEEP_RISE_MS       80
-#define SWEEP_FADE_MS       300
-#define SWEEP_TURN_MS       (SWEEP_MS - SWEEP_FADE_MS)
+#define DRIVE_PERIOD_MS     4000
+#define DRIVE_LOW           2
+#define DRIVE_HIGH          12
 
 #define PEAK STATUS_LED_PEAK
 
@@ -61,52 +58,12 @@ status_led_color_t status_led_render(status_led_pattern_t pattern, uint32_t ms, 
     }
 }
 
-static uint8_t lerp(uint8_t a, uint8_t b, uint32_t t, uint32_t span)
+/* Breathes between faint and dim, never off: at a glance it reads as "busy", not as a blink. */
+status_led_color_t status_led_render_drive(uint32_t ms)
 {
-    return (uint8_t)(a + ((int32_t)b - a) * (int32_t)t / (int32_t)span);
-}
-
-/* Teal through blue to violet at full brightness, then the violet fades on the squared ramp. */
-static status_led_color_t sweep(uint32_t t)
-{
-    const status_led_color_t stops[] = {
-        status_led_color(STATUS_LED_TOKEN_EJECT_START, PEAK),
-        status_led_color(STATUS_LED_TOKEN_EJECT_MIDDLE, PEAK),
-        status_led_color(STATUS_LED_TOKEN_EJECT_END, PEAK),
-    };
-    uint32_t half = SWEEP_TURN_MS / 2;
-    uint32_t turn = t < SWEEP_TURN_MS ? t : SWEEP_TURN_MS;
-    const status_led_color_t *a = &stops[turn < half ? 0 : 1];
-    const status_led_color_t *b = a + 1;
-    uint32_t u = turn < half ? turn : turn - half;
-    status_led_color_t c = { lerp(a->r, b->r, u, half), lerp(a->g, b->g, u, half), lerp(a->b, b->b, u, half) };
-
-    uint32_t level = 256;
-    if (t < SWEEP_RISE_MS) {
-        level = 256 * t / SWEEP_RISE_MS;
-    } else if (t > SWEEP_TURN_MS) {
-        uint32_t left = SWEEP_MS - t;
-        level = 256 * left * left / (SWEEP_FADE_MS * SWEEP_FADE_MS);
-    }
-    return (status_led_color_t){ (uint8_t)(c.r * level / 256), (uint8_t)(c.g * level / 256),
-                                 (uint8_t)(c.b * level / 256) };
-}
-
-status_led_color_t status_led_render_event(status_led_event_t event, uint32_t ms, bool *done)
-{
-    *done = false;
-    switch (event) {
-    case STATUS_LED_EVENT_DRIVE_EJECTED: {
-        uint32_t period = SWEEP_MS + SWEEP_GAP_MS;
-        if (ms >= SWEEPS * period) {
-            *done = true;
-            return (status_led_color_t){ 0 };
-        }
-        uint32_t t = ms % period;
-        return t < SWEEP_MS ? sweep(t) : (status_led_color_t){ 0 };
-    }
-    default:
-        *done = true;
-        return (status_led_color_t){ 0 };
-    }
+    uint32_t phase = ms % DRIVE_PERIOD_MS;
+    uint32_t half = DRIVE_PERIOD_MS / 2;
+    uint32_t rise = phase < half ? phase : DRIVE_PERIOD_MS - phase;
+    uint32_t level = DRIVE_LOW + (DRIVE_HIGH - DRIVE_LOW) * rise / half;
+    return status_led_color(STATUS_LED_TOKEN_DRIVE, level);
 }

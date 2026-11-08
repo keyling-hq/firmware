@@ -21,7 +21,7 @@ static void poll_cb(lv_timer_t *timer)
         return;
     }
     s_ejected = true;
-    status_led_event(STATUS_LED_EVENT_DRIVE_EJECTED);
+    status_led_drive(false);
     if (!ui_screen_is_on()) {
         ui_app_exit();
         return;

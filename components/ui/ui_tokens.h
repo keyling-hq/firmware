@@ -7,6 +7,7 @@
 #define UI_TOKEN_CANDY_TEXT                 0xFFFFFF
 #define UI_TOKEN_CANDY_TEXT_DIM             0x8A8FB8
 #define UI_TOKEN_CANDY_ACCENT               0x7C9CFF
+#define UI_TOKEN_CANDY_ON_ACCENT            0x15172B
 #define UI_TOKEN_CANDY_GOOD                 0x7CF29A
 #define UI_TOKEN_CANDY_BAD                  0xFF6B6B
 #define UI_TOKEN_CANDY_WARN                 0xFFD166
