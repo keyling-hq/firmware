@@ -8,14 +8,14 @@
 #define UI_TOKEN_CANDY_TEXT_DIM             0x8A8FB8
 #define UI_TOKEN_CANDY_ACCENT               0x7C9CFF
 #define UI_TOKEN_CANDY_ON_ACCENT            0x15172B
+#define UI_TOKEN_CANDY_ON_APP               0x15172B
 #define UI_TOKEN_CANDY_GOOD                 0x7CF29A
 #define UI_TOKEN_CANDY_BAD                  0xFF6B6B
 #define UI_TOKEN_CANDY_WARN                 0xFFD166
 #define UI_TOKEN_CANDY_BLUETOOTH_CONNECTED  0x4D9BFF
-#define UI_TOKEN_CANDY_SETTINGS             0xFFD166
 
-/* Apps other than Settings take these in launcher order, starting over after the last */
-#define UI_TOKEN_CANDY_APP_COLORS           { 0xFF6B6B, 0x4ECDC4, 0x5BC0EB, 0xB28DFF, 0xFF9F43, 0xF78FB3 }
+/* App colors: Settings takes the first, the other apps the rest in launcher order */
+#define UI_TOKEN_CANDY_APP_COLORS           { 0xFFD166, 0xFF6B6B, 0x4ECDC4, 0x5BC0EB, 0xB28DFF, 0xFF9F43, 0xF78FB3 }
 
 /* Radii in px; tiles round off by a share of their size */
 #define UI_TOKEN_RADIUS_ITEM                8

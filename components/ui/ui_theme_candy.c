@@ -22,12 +22,13 @@
 #define SITE_MARK   UI_SITE_ICON_SIZE
 #define RING        48
 
-/* Settings has its own color; the other apps take the palette's in launcher order. */
+/* Settings takes the palette's first color; the other apps the rest in launcher order. */
 static uint32_t app_color(const ui_app_t *app)
 {
     static const uint32_t palette[] = UI_TOKEN_CANDY_APP_COLORS;
+    const int others = sizeof(palette) / sizeof(palette[0]) - 1;
     int slot = ui_app_slot(app);
-    return slot < 0 ? UI_TOKEN_CANDY_SETTINGS : palette[slot % (sizeof(palette) / sizeof(palette[0]))];
+    return slot < 0 ? palette[0] : palette[1 + slot % others];
 }
 
 /* Launcher parts after the tiles. */

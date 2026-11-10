@@ -61,7 +61,7 @@ def render() -> dict[Path, str]:
         ROOT / "components" / "ui" / "ui_tokens.h": HEADER.format(source="candy.json")
         + "/* Candy */\n"
         + defines(palette)
-        + "\n/* Apps other than Settings take these in launcher order, starting over after the last */\n"
+        + "\n/* App colors: Settings takes the first, the other apps the rest in launcher order */\n"
         + f"#define UI_TOKEN_CANDY_APP_COLORS           {{ {', '.join(apps)} }}\n"
         + "\n/* Radii in px; tiles round off by a share of their size */\n"
         + defines(radii),
